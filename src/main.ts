@@ -91,6 +91,7 @@ let previousScreen: Screen = 'title';
 let boardCells: Cell[] = Array<Cell>(boardColumns * boardRows).fill(null);
 let currentPiece: Piece | null = null;
 let holdPiece: PieceDefinition | null = null;
+let nextQueue: PieceDefinition[] = [];
 let canHold = true;
 let lastDropTime = 0;
 let score = 0;
@@ -156,7 +157,10 @@ const getGamepadStatusText = (): string =>
 
 const getCellIndex = (x: number, y: number): number => y * boardColumns + x;
 
-const createPiece = (definition = pieces[Math.floor(Math.random() * pieces.length)]): Piece => {
+const randomPieceDefinition = (): PieceDefinition =>
+  pieces[Math.floor(Math.random() * pieces.length)];
+
+const createPiece = (definition = randomPieceDefinition()): Piece => {
   const maxX = Math.max(...definition.cells.map((cell) => cell.x));
 
   return {
@@ -166,6 +170,19 @@ const createPiece = (definition = pieces[Math.floor(Math.random() * pieces.lengt
     x: Math.floor((boardColumns - maxX - 1) / 2),
     y: 0,
   };
+};
+
+const fillNextQueue = (): void => {
+  while (nextQueue.length < 3) {
+    nextQueue.push(randomPieceDefinition());
+  }
+};
+
+const takeNextPiece = (): Piece => {
+  fillNextQueue();
+  const nextDefinition = nextQueue.shift() ?? randomPieceDefinition();
+  fillNextQueue();
+  return createPiece(nextDefinition);
 };
 
 const collides = (piece: Piece, offset: Point = { x: 0, y: 0 }): boolean =>
@@ -185,7 +202,9 @@ const collides = (piece: Piece, offset: Point = { x: 0, y: 0 }): boolean =>
 
 const resetGame = (): void => {
   boardCells = Array<Cell>(boardColumns * boardRows).fill(null);
-  currentPiece = createPiece();
+  nextQueue = [];
+  fillNextQueue();
+  currentPiece = takeNextPiece();
   holdPiece = null;
   canHold = true;
   score = 0;
@@ -244,7 +263,7 @@ const lockPiece = (piece: Piece): void => {
 };
 
 const spawnNextPiece = (): void => {
-  const nextPiece = createPiece();
+  const nextPiece = takeNextPiece();
   if (collides(nextPiece)) {
     currentPiece = null;
     currentScreen = 'gameOver';
@@ -334,7 +353,11 @@ const holdCurrentPiece = (): void => {
       currentScreen = 'gameOver';
     }
   } else {
-    spawnNextPiece();
+    currentPiece = takeNextPiece();
+    if (collides(currentPiece)) {
+      currentPiece = null;
+      currentScreen = 'gameOver';
+    }
   }
 
   canHold = false;
@@ -690,14 +713,6 @@ const createBoardCells = (): Cell[] => {
   return cells;
 };
 
-const createMiniCells = (filled: number[], color: string): Cell[] => {
-  const cells = Array<Cell>(16).fill(null);
-  filled.forEach((index) => {
-    cells[index] = color;
-  });
-  return cells;
-};
-
 const createMiniPieceCells = (definition: PieceDefinition | null): Cell[] => {
   if (!definition) {
     return Array<Cell>(16).fill(null);
@@ -775,7 +790,7 @@ const drawCanvases = (): void => {
     drawGridCanvas(hold, 4, 4, createMiniPieceCells(holdPiece));
   }
   if (next) {
-    drawGridCanvas(next, 4, 4, createMiniCells([4, 5, 6, 9], palette.next));
+    drawGridCanvas(next, 4, 4, createMiniPieceCells(nextQueue[0] ?? null));
   }
 };
 
