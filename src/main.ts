@@ -4,6 +4,7 @@ type Screen = 'title' | 'game' | 'pause' | 'gameOver' | 'controls';
 type Cell = string | null;
 type Point = { x: number; y: number };
 type Piece = {
+  definition: PieceDefinition;
   cells: Point[];
   color: string;
   x: number;
@@ -13,6 +14,15 @@ type PieceDefinition = {
   cells: Point[];
   color: string;
 };
+type InputAction =
+  | 'moveLeft'
+  | 'moveRight'
+  | 'softDrop'
+  | 'hardDrop'
+  | 'rotateClockwise'
+  | 'rotateCounterclockwise'
+  | 'hold'
+  | 'pause';
 
 const boardColumns = 10;
 const boardRows = 20;
@@ -67,7 +77,27 @@ let currentScreen: Screen = 'title';
 let previousScreen: Screen = 'title';
 let boardCells: Cell[] = Array<Cell>(boardColumns * boardRows).fill(null);
 let currentPiece: Piece | null = null;
+let holdPiece: PieceDefinition | null = null;
+let canHold = true;
 let lastDropTime = 0;
+const keyboardMap = new Map<string, InputAction>([
+  ['ArrowLeft', 'moveLeft'],
+  ['KeyA', 'moveLeft'],
+  ['ArrowRight', 'moveRight'],
+  ['KeyD', 'moveRight'],
+  ['ArrowDown', 'softDrop'],
+  ['KeyS', 'softDrop'],
+  ['Space', 'hardDrop'],
+  ['ArrowUp', 'rotateClockwise'],
+  ['KeyW', 'rotateClockwise'],
+  ['KeyX', 'rotateClockwise'],
+  ['KeyZ', 'rotateCounterclockwise'],
+  ['KeyC', 'hold'],
+  ['ShiftLeft', 'hold'],
+  ['ShiftRight', 'hold'],
+  ['Escape', 'pause'],
+  ['KeyP', 'pause'],
+]);
 
 const setScreen = (screen: Screen): void => {
   if (screen !== 'pause' && screen !== 'controls') {
@@ -85,11 +115,11 @@ const openControls = (): void => {
 
 const getCellIndex = (x: number, y: number): number => y * boardColumns + x;
 
-const createPiece = (): Piece => {
-  const definition = pieces[Math.floor(Math.random() * pieces.length)];
+const createPiece = (definition = pieces[Math.floor(Math.random() * pieces.length)]): Piece => {
   const maxX = Math.max(...definition.cells.map((cell) => cell.x));
 
   return {
+    definition,
     cells: definition.cells.map((cell) => ({ ...cell })),
     color: definition.color,
     x: Math.floor((boardColumns - maxX - 1) / 2),
@@ -115,6 +145,8 @@ const collides = (piece: Piece, offset: Point = { x: 0, y: 0 }): boolean =>
 const resetGame = (): void => {
   boardCells = Array<Cell>(boardColumns * boardRows).fill(null);
   currentPiece = createPiece();
+  holdPiece = null;
+  canHold = true;
   lastDropTime = performance.now();
 };
 
@@ -139,6 +171,89 @@ const spawnNextPiece = (): void => {
   }
 
   currentPiece = nextPiece;
+  canHold = true;
+};
+
+const moveCurrentPiece = (dx: number, dy: number): boolean => {
+  if (currentScreen !== 'game' || !currentPiece || collides(currentPiece, { x: dx, y: dy })) {
+    return false;
+  }
+
+  currentPiece.x += dx;
+  currentPiece.y += dy;
+  render();
+  return true;
+};
+
+const rotateCells = (piece: Piece, clockwise: boolean): Point[] => {
+  const maxX = Math.max(...piece.cells.map((cell) => cell.x));
+  const maxY = Math.max(...piece.cells.map((cell) => cell.y));
+  const rotated = piece.cells.map((cell) =>
+    clockwise
+      ? { x: maxY - cell.y, y: cell.x }
+      : { x: cell.y, y: maxX - cell.x },
+  );
+  const minX = Math.min(...rotated.map((cell) => cell.x));
+  const minY = Math.min(...rotated.map((cell) => cell.y));
+
+  return rotated.map((cell) => ({ x: cell.x - minX, y: cell.y - minY }));
+};
+
+const rotateCurrentPiece = (clockwise: boolean): void => {
+  if (currentScreen !== 'game' || !currentPiece) {
+    return;
+  }
+
+  const rotatedPiece: Piece = {
+    ...currentPiece,
+    cells: rotateCells(currentPiece, clockwise),
+  };
+  const wallKicks = [0, -1, 1, -2, 2];
+  const kick = wallKicks.find((dx) => !collides(rotatedPiece, { x: dx, y: 0 }));
+
+  if (kick === undefined) {
+    return;
+  }
+
+  currentPiece.cells = rotatedPiece.cells;
+  currentPiece.x += kick;
+  render();
+};
+
+const hardDropCurrentPiece = (): void => {
+  if (currentScreen !== 'game' || !currentPiece) {
+    return;
+  }
+
+  while (!collides(currentPiece, { x: 0, y: 1 })) {
+    currentPiece.y += 1;
+  }
+
+  lockPiece(currentPiece);
+  spawnNextPiece();
+  render();
+};
+
+const holdCurrentPiece = (): void => {
+  if (currentScreen !== 'game' || !currentPiece || !canHold) {
+    return;
+  }
+
+  const heldDefinition = holdPiece;
+  holdPiece = currentPiece.definition;
+
+  if (heldDefinition) {
+    currentPiece = createPiece(heldDefinition);
+    if (collides(currentPiece)) {
+      currentPiece = null;
+      currentScreen = 'gameOver';
+    }
+  } else {
+    spawnNextPiece();
+  }
+
+  canHold = false;
+  render();
 };
 
 const stepGame = (): void => {
@@ -154,6 +269,35 @@ const stepGame = (): void => {
   }
 
   render();
+};
+
+const applyInputAction = (action: InputAction): void => {
+  if (action === 'moveLeft') {
+    moveCurrentPiece(-1, 0);
+  } else if (action === 'moveRight') {
+    moveCurrentPiece(1, 0);
+  } else if (action === 'softDrop') {
+    if (!moveCurrentPiece(0, 1) && currentPiece) {
+      lockPiece(currentPiece);
+      spawnNextPiece();
+      render();
+    }
+  } else if (action === 'hardDrop') {
+    hardDropCurrentPiece();
+  } else if (action === 'rotateClockwise') {
+    rotateCurrentPiece(true);
+  } else if (action === 'rotateCounterclockwise') {
+    rotateCurrentPiece(false);
+  } else if (action === 'hold') {
+    holdCurrentPiece();
+  } else if (action === 'pause') {
+    if (currentScreen === 'game') {
+      currentScreen = 'pause';
+      render();
+    } else if (currentScreen === 'pause') {
+      setScreen('game');
+    }
+  }
 };
 
 const updateGame = (timestamp: number): void => {
@@ -375,6 +519,18 @@ const createMiniCells = (filled: number[], color: string): Cell[] => {
   return cells;
 };
 
+const createMiniPieceCells = (definition: PieceDefinition | null): Cell[] => {
+  if (!definition) {
+    return Array<Cell>(16).fill(null);
+  }
+
+  const cells = Array<Cell>(16).fill(null);
+  definition.cells.forEach((cell) => {
+    cells[cell.y * 4 + cell.x] = definition.color;
+  });
+  return cells;
+};
+
 const drawGridCanvas = (
   canvas: HTMLCanvasElement,
   columns: number,
@@ -437,7 +593,7 @@ const drawCanvases = (): void => {
     drawGridCanvas(board, boardColumns, boardRows, createBoardCells());
   }
   if (hold) {
-    drawGridCanvas(hold, 4, 4, createMiniCells([1, 5, 9, 13], palette.hold));
+    drawGridCanvas(hold, 4, 4, createMiniPieceCells(holdPiece));
   }
   if (next) {
     drawGridCanvas(next, 4, 4, createMiniCells([4, 5, 6, 9], palette.next));
@@ -473,14 +629,13 @@ root.addEventListener('click', (event) => {
 });
 
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' || event.key.toLowerCase() === 'p') {
-    if (currentScreen === 'game') {
-      currentScreen = 'pause';
-      render();
-    } else if (currentScreen === 'pause') {
-      setScreen('game');
-    }
+  const action = keyboardMap.get(event.code);
+  if (!action) {
+    return;
   }
+
+  event.preventDefault();
+  applyInputAction(action);
 });
 
 render();
