@@ -57,3 +57,15 @@ export const gamepadAxisMap: GamepadAxisBinding[] = [
   { axis: 0, direction: 1, action: 'moveRight' },
   { axis: 1, direction: 1, action: 'softDrop' },
 ];
+
+export const shouldApplyGamepadAction = (
+  appliedActions: Set<InputAction>,
+  action: InputAction,
+): boolean => {
+  if (appliedActions.has(action)) {
+    return false;
+  }
+
+  appliedActions.add(action);
+  return true;
+};

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { gamepadAxisMap, gamepadButtonMap, keyboardMap } from './input';
+import {
+  gamepadAxisMap,
+  gamepadButtonMap,
+  keyboardMap,
+  shouldApplyGamepadAction,
+} from './input';
+import type { InputAction } from './input';
 
 describe('input mappings', () => {
   it('maps keyboard controls to every gameplay action', () => {
@@ -41,5 +47,13 @@ describe('input mappings', () => {
         { axis: 1, direction: 1, action: 'softDrop' },
       ]),
     );
+  });
+
+  it('deduplicates duplicate gamepad actions in one polling frame', () => {
+    const appliedActions = new Set<InputAction>();
+
+    expect(shouldApplyGamepadAction(appliedActions, 'moveLeft')).toBe(true);
+    expect(shouldApplyGamepadAction(appliedActions, 'moveLeft')).toBe(false);
+    expect(shouldApplyGamepadAction(appliedActions, 'moveRight')).toBe(true);
   });
 });
