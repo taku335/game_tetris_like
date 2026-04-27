@@ -17,7 +17,7 @@
 html,
 body,
 #app {
-  min-width: 960px;
+  min-width: 1040px;
   min-height: 100vh;
   margin: 0;
 }
@@ -30,20 +30,40 @@ body {
   background-size: 32px 32px;
 }
 
-.app-shell {
+button {
+  min-height: 44px;
+  border: 1px solid rgba(237, 245, 255, 0.22);
+  border-radius: 8px;
+  background: #edf5ff;
+  color: #101820;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+button:hover {
+  background: #79d3c8;
+}
+
+.screen {
   display: grid;
   min-height: 100vh;
-  place-items: center;
+  align-content: center;
+  gap: 32px;
   padding: 48px;
 }
 
 .title-screen {
-  width: min(100%, 920px);
-  border: 1px solid rgba(237, 245, 255, 0.18);
-  border-radius: 8px;
-  background: rgba(16, 24, 32, 0.86);
-  padding: 56px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-areas:
+    "copy actions"
+    "status status";
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.title-copy {
+  grid-area: copy;
 }
 
 .eyebrow {
@@ -55,48 +75,266 @@ body {
   text-transform: uppercase;
 }
 
-h1 {
+h1,
+h2,
+p,
+dl {
   margin: 0;
+}
+
+h1 {
   color: #ffffff;
   font-size: 4rem;
   line-height: 1;
 }
 
+h2 {
+  color: #ffffff;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
 .summary {
-  max-width: 660px;
-  margin: 24px 0 0;
+  max-width: 620px;
+  margin-top: 24px;
   color: #b7c7d7;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   line-height: 1.65;
 }
 
+.menu-actions {
+  grid-area: actions;
+  display: grid;
+  align-content: center;
+  gap: 14px;
+}
+
 .status-grid {
+  grid-area: status;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
-  margin-top: 40px;
+}
+
+.status-grid div,
+.panel,
+.control-card,
+.modal-panel {
+  border: 1px solid rgba(237, 245, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(16, 24, 32, 0.9);
 }
 
 .status-grid div {
   min-height: 112px;
-  border: 1px solid rgba(237, 245, 255, 0.14);
-  border-radius: 8px;
   padding: 18px;
-  background: rgba(255, 255, 255, 0.045);
 }
 
-.status-grid span {
-  display: block;
+dt {
   color: #8aa1b5;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
-.status-grid strong {
-  display: block;
-  margin-top: 14px;
+dd {
+  margin: 8px 0 0;
   color: #f4f8fb;
-  font-size: 1.05rem;
-  line-height: 1.35;
+  font-size: 1.08rem;
+  font-weight: 800;
+}
+
+.game-shell {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  grid-template-rows: auto 1fr auto;
+  gap: 20px;
+  padding: 28px 40px;
+}
+
+.game-header,
+.game-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.game-header h1 {
+  font-size: 1.5rem;
+}
+
+.header-status,
+.game-actions {
+  color: #b7c7d7;
+  font-size: 0.9rem;
+}
+
+.header-status {
+  display: flex;
+  gap: 18px;
+}
+
+.game-actions {
+  justify-content: center;
+}
+
+.game-actions button {
+  min-width: 128px;
+}
+
+.game-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(360px, 440px) 220px;
+  justify-content: center;
+  gap: 24px;
+  min-height: 0;
+}
+
+.side-panel {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.panel {
+  padding: 18px;
+}
+
+.stats-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.stats-panel strong {
+  color: #79d3c8;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.controls-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.controls-panel p,
+.connection-state {
+  color: #b7c7d7;
+  font-size: 0.9rem;
+}
+
+.board-wrap {
+  display: grid;
+  place-items: center;
+}
+
+.board-grid {
+  display: grid;
+  width: min(100%, 440px);
+  aspect-ratio: 10 / 20;
+  grid-template-columns: repeat(10, 1fr);
+  grid-template-rows: repeat(20, 1fr);
+  border: 2px solid rgba(237, 245, 255, 0.28);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.board-cell,
+.mini-cell {
+  border: 1px solid rgba(237, 245, 255, 0.08);
+}
+
+.board-cell.is-filled,
+.mini-cell.is-filled {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: #79d3c8;
+  box-shadow: inset 0 -3px 0 rgba(16, 24, 32, 0.3);
+}
+
+.mini-board {
+  display: grid;
+  width: 96px;
+  aspect-ratio: 1;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  margin-top: 14px;
+  border: 1px solid rgba(237, 245, 255, 0.18);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.modal-layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 40px;
+  background: rgba(16, 24, 32, 0.78);
+}
+
+.modal-panel {
+  width: min(100%, 420px);
+  padding: 32px;
+  text-align: center;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+}
+
+.modal-panel h2 {
+  font-size: 2.5rem;
+  text-transform: none;
+}
+
+.modal-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.score-modal dl {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.score-modal dl div,
+.control-card dl div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.controls-screen {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.screen-header {
+  display: grid;
+  gap: 8px;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.control-card {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.control-card dl {
+  display: grid;
+  gap: 12px;
+}
+
+.control-card dd {
+  color: #edf5ff;
+  font-size: 0.96rem;
+}
+
+.controls-screen > button {
+  width: 180px;
 }
