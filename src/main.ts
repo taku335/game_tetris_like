@@ -137,6 +137,29 @@ const buttonRepeatTimes = new Map<string, number>();
 const axisRepeatTimes = new Map<string, number>();
 let activeGamepadIndex: number | null = null;
 let activeGamepadName: string | null = null;
+const highScoreStorageKey = 'falling-blocks:high-score';
+
+const loadHighScore = (): number => {
+  try {
+    const storedScore = window.localStorage.getItem(highScoreStorageKey);
+    const parsedScore = storedScore ? Number.parseInt(storedScore, 10) : 0;
+    return Number.isFinite(parsedScore) && parsedScore > 0 ? parsedScore : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const saveHighScore = (value: number): void => {
+  try {
+    window.localStorage.setItem(highScoreStorageKey, String(value));
+  } catch {
+    // Storage can be unavailable in private browsing or restricted embeds.
+  }
+};
+
+let highScore = loadHighScore();
+
+const formatScore = (value: number): string => value.toString().padStart(6, '0');
 
 const setScreen = (screen: Screen): void => {
   if (screen !== 'pause' && screen !== 'controls') {
@@ -176,6 +199,11 @@ const resumeGame = (): void => {
 };
 
 const finishGame = (): void => {
+  if (score > highScore) {
+    highScore = score;
+    saveHighScore(highScore);
+  }
+
   currentPiece = null;
   currentScreen = 'gameOver';
   render();
@@ -565,7 +593,7 @@ const renderTitle = (): string => `
       </div>
       <div>
         <dt>High Score</dt>
-        <dd>000000</dd>
+        <dd>${formatScore(highScore)}</dd>
       </div>
     </dl>
   </main>
@@ -589,7 +617,7 @@ const renderGame = (overlay?: 'pause' | 'gameOver'): string => `
         </section>
         <section class="panel stats-panel">
           <h2>Score</h2>
-          <strong>${score.toString().padStart(6, '0')}</strong>
+          <strong>${formatScore(score)}</strong>
           <h2>Lines</h2>
           <strong>${lines}</strong>
         </section>
@@ -648,10 +676,10 @@ const renderGameOverOverlay = (): string => `
     <div class="modal-panel score-modal">
       <h2 id="game-over-title">Game Over</h2>
       <dl>
-        <div><dt>Score</dt><dd>${score.toString().padStart(6, '0')}</dd></div>
+        <div><dt>Score</dt><dd>${formatScore(score)}</dd></div>
         <div><dt>Lines</dt><dd>${lines}</dd></div>
         <div><dt>Level</dt><dd>${level.toString().padStart(2, '0')}</dd></div>
-        <div><dt>High Score</dt><dd>000000</dd></div>
+        <div><dt>High Score</dt><dd>${formatScore(highScore)}</dd></div>
       </dl>
       <div class="modal-actions">
         <button type="button" data-action="restart">Restart</button>
