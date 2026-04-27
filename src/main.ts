@@ -23,10 +23,22 @@ type InputAction =
   | 'rotateCounterclockwise'
   | 'hold'
   | 'pause';
+type GamepadButtonBinding = {
+  button: number;
+  action: InputAction;
+  repeat: boolean;
+};
+type GamepadAxisBinding = {
+  axis: number;
+  direction: -1 | 1;
+  action: InputAction;
+};
 
 const boardColumns = 10;
 const boardRows = 20;
 const dropIntervalMs = 650;
+const inputRepeatMs = 120;
+const gamepadAxisThreshold = 0.55;
 const palette = {
   active: '#79d3c8',
   fixed: '#f2c14e',
@@ -98,6 +110,28 @@ const keyboardMap = new Map<string, InputAction>([
   ['Escape', 'pause'],
   ['KeyP', 'pause'],
 ]);
+const gamepadButtonMap: GamepadButtonBinding[] = [
+  { button: 14, action: 'moveLeft', repeat: true },
+  { button: 15, action: 'moveRight', repeat: true },
+  { button: 13, action: 'softDrop', repeat: true },
+  { button: 0, action: 'rotateClockwise', repeat: false },
+  { button: 1, action: 'rotateCounterclockwise', repeat: false },
+  { button: 2, action: 'hardDrop', repeat: false },
+  { button: 3, action: 'hardDrop', repeat: false },
+  { button: 4, action: 'hold', repeat: false },
+  { button: 5, action: 'hold', repeat: false },
+  { button: 9, action: 'pause', repeat: false },
+];
+const gamepadAxisMap: GamepadAxisBinding[] = [
+  { axis: 0, direction: -1, action: 'moveLeft' },
+  { axis: 0, direction: 1, action: 'moveRight' },
+  { axis: 1, direction: 1, action: 'softDrop' },
+];
+const pressedGamepadButtons = new Set<number>();
+const buttonRepeatTimes = new Map<string, number>();
+const axisRepeatTimes = new Map<string, number>();
+let activeGamepadIndex: number | null = null;
+let activeGamepadName: string | null = null;
 
 const setScreen = (screen: Screen): void => {
   if (screen !== 'pause' && screen !== 'controls') {
@@ -112,6 +146,9 @@ const openControls = (): void => {
   currentScreen = 'controls';
   render();
 };
+
+const getGamepadStatusText = (): string =>
+  activeGamepadName ? `Connected: ${activeGamepadName}` : 'Not Connected';
 
 const getCellIndex = (x: number, y: number): number => y * boardColumns + x;
 
@@ -300,7 +337,99 @@ const applyInputAction = (action: InputAction): void => {
   }
 };
 
+const getActiveGamepad = (): Gamepad | null => {
+  const gamepads = navigator.getGamepads?.();
+  if (!gamepads) {
+    return null;
+  }
+
+  if (activeGamepadIndex !== null) {
+    return gamepads[activeGamepadIndex] ?? null;
+  }
+
+  const gamepad = gamepads.find((candidate) => candidate !== null);
+  if (!gamepad) {
+    return null;
+  }
+
+  activeGamepadIndex = gamepad.index;
+  activeGamepadName = gamepad.id;
+  render();
+  return gamepad;
+};
+
+const shouldApplyRepeatedInput = (
+  key: string,
+  timestamp: number,
+  repeatTimes: Map<string, number>,
+): boolean => {
+  const lastApplied = repeatTimes.get(key) ?? 0;
+  if (timestamp - lastApplied < inputRepeatMs) {
+    return false;
+  }
+
+  repeatTimes.set(key, timestamp);
+  return true;
+};
+
+const pollGamepadButtons = (gamepad: Gamepad, timestamp: number): void => {
+  gamepadButtonMap.forEach((binding) => {
+    const pressed = gamepad.buttons[binding.button]?.pressed ?? false;
+    const wasPressed = pressedGamepadButtons.has(binding.button);
+
+    if (!pressed) {
+      pressedGamepadButtons.delete(binding.button);
+      buttonRepeatTimes.delete(String(binding.button));
+      return;
+    }
+
+    if (!binding.repeat && !wasPressed) {
+      applyInputAction(binding.action);
+    } else if (
+      binding.repeat &&
+      (!wasPressed ||
+        shouldApplyRepeatedInput(String(binding.button), timestamp, buttonRepeatTimes))
+    ) {
+      applyInputAction(binding.action);
+    }
+
+    pressedGamepadButtons.add(binding.button);
+  });
+};
+
+const pollGamepadAxes = (gamepad: Gamepad, timestamp: number): void => {
+  gamepadAxisMap.forEach((binding) => {
+    const value = gamepad.axes[binding.axis] ?? 0;
+    const active =
+      binding.direction < 0
+        ? value <= -gamepadAxisThreshold
+        : value >= gamepadAxisThreshold;
+    const key = `${binding.axis}:${binding.direction}`;
+
+    if (!active) {
+      axisRepeatTimes.delete(key);
+      return;
+    }
+
+    if (shouldApplyRepeatedInput(key, timestamp, axisRepeatTimes)) {
+      applyInputAction(binding.action);
+    }
+  });
+};
+
+const pollGamepads = (timestamp: number): void => {
+  const gamepad = getActiveGamepad();
+  if (!gamepad) {
+    return;
+  }
+
+  pollGamepadButtons(gamepad, timestamp);
+  pollGamepadAxes(gamepad, timestamp);
+};
+
 const updateGame = (timestamp: number): void => {
+  pollGamepads(timestamp);
+
   if (timestamp - lastDropTime >= dropIntervalMs) {
     lastDropTime = timestamp;
     stepGame();
@@ -327,7 +456,7 @@ const renderTitle = (): string => `
       </div>
       <div>
         <dt>Gamepad</dt>
-        <dd>Not Connected</dd>
+        <dd>${getGamepadStatusText()}</dd>
       </div>
       <div>
         <dt>High Score</dt>
@@ -343,7 +472,7 @@ const renderGame = (overlay?: 'pause' | 'gameOver'): string => `
       <h1 id="game-title">Falling Blocks</h1>
       <div class="header-status">
         <span>Keyboard: Ready</span>
-        <span>Gamepad: Not Connected</span>
+        <span>Gamepad: ${getGamepadStatusText()}</span>
       </div>
     </header>
 
@@ -456,7 +585,7 @@ const renderControls = (): string => `
           <div><dt>L / R</dt><dd>Hold</dd></div>
           <div><dt>+</dt><dd>Pause</dd></div>
         </dl>
-        <p class="connection-state">Gamepad Status: Not Connected</p>
+        <p class="connection-state">Gamepad Status: ${getGamepadStatusText()}</p>
       </article>
     </section>
     <button type="button" data-action="back">Back</button>
@@ -625,6 +754,23 @@ root.addEventListener('click', (event) => {
     setScreen('title');
   } else if (action === 'back') {
     setScreen(previousScreen === 'controls' ? 'title' : previousScreen);
+  }
+});
+
+window.addEventListener('gamepadconnected', (event) => {
+  activeGamepadIndex = event.gamepad.index;
+  activeGamepadName = event.gamepad.id;
+  render();
+});
+
+window.addEventListener('gamepaddisconnected', (event) => {
+  if (activeGamepadIndex === event.gamepad.index) {
+    activeGamepadIndex = null;
+    activeGamepadName = null;
+    pressedGamepadButtons.clear();
+    buttonRepeatTimes.clear();
+    axisRepeatTimes.clear();
+    render();
   }
 });
 
