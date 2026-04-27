@@ -1,6 +1,17 @@
 import './styles/app.css';
 
 type Screen = 'title' | 'game' | 'pause' | 'gameOver' | 'controls';
+type Cell = string | null;
+
+const boardColumns = 10;
+const boardRows = 20;
+const palette = {
+  active: '#79d3c8',
+  fixed: '#f2c14e',
+  ghost: '#8aa1b5',
+  next: '#ef476f',
+  hold: '#6c8cff',
+};
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -26,20 +37,6 @@ const openControls = (): void => {
   currentScreen = 'controls';
   render();
 };
-
-const renderBoardCells = (): string =>
-  Array.from({ length: 200 }, (_, index) => {
-    const sample = [4, 14, 24, 25, 156, 166, 176, 177, 188, 189].includes(index)
-      ? ' is-filled'
-      : '';
-    return `<span class="board-cell${sample}" aria-hidden="true"></span>`;
-  }).join('');
-
-const renderMiniCells = (filled: number[]): string =>
-  Array.from({ length: 16 }, (_, index) => {
-    const sample = filled.includes(index) ? ' is-filled' : '';
-    return `<span class="mini-cell${sample}" aria-hidden="true"></span>`;
-  }).join('');
 
 const renderTitle = (): string => `
   <main class="screen title-screen" aria-labelledby="app-title">
@@ -83,9 +80,7 @@ const renderGame = (overlay?: 'pause' | 'gameOver'): string => `
       <aside class="side-panel">
         <section class="panel">
           <h2>Hold</h2>
-          <div class="mini-board" aria-label="Hold block preview">
-            ${renderMiniCells([1, 5, 9, 13])}
-          </div>
+          <canvas class="mini-canvas" width="128" height="128" data-canvas="hold" aria-label="Hold block preview"></canvas>
         </section>
         <section class="panel stats-panel">
           <h2>Score</h2>
@@ -96,15 +91,13 @@ const renderGame = (overlay?: 'pause' | 'gameOver'): string => `
       </aside>
 
       <section class="board-wrap" aria-label="Main board">
-        <div class="board-grid">${renderBoardCells()}</div>
+        <canvas class="board-canvas" width="320" height="640" data-canvas="board" aria-label="Main board preview"></canvas>
       </section>
 
       <aside class="side-panel">
         <section class="panel">
           <h2>Next</h2>
-          <div class="mini-board" aria-label="Next block preview">
-            ${renderMiniCells([4, 5, 6, 9])}
-          </div>
+          <canvas class="mini-canvas" width="128" height="128" data-canvas="next" aria-label="Next block preview"></canvas>
         </section>
         <section class="panel stats-panel">
           <h2>Level</h2>
@@ -211,7 +204,105 @@ function render(): void {
   } else {
     root.innerHTML = renderControls();
   }
+
+  drawCanvases();
 }
+
+const createBoardCells = (): Cell[] => {
+  const cells = Array<Cell>(boardColumns * boardRows).fill(null);
+  const fixedCells = [156, 166, 176, 177, 188, 189];
+  const activeCells = [4, 14, 24, 25];
+  const ghostCells = [44, 54, 64, 65];
+
+  fixedCells.forEach((index) => {
+    cells[index] = palette.fixed;
+  });
+  ghostCells.forEach((index) => {
+    cells[index] = palette.ghost;
+  });
+  activeCells.forEach((index) => {
+    cells[index] = palette.active;
+  });
+
+  return cells;
+};
+
+const createMiniCells = (filled: number[], color: string): Cell[] => {
+  const cells = Array<Cell>(16).fill(null);
+  filled.forEach((index) => {
+    cells[index] = color;
+  });
+  return cells;
+};
+
+const drawGridCanvas = (
+  canvas: HTMLCanvasElement,
+  columns: number,
+  rows: number,
+  cells: Cell[],
+): void => {
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return;
+  }
+
+  const cellWidth = canvas.width / columns;
+  const cellHeight = canvas.height / rows;
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = 'rgba(0, 0, 0, 0.28)';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  cells.forEach((color, index) => {
+    if (!color) {
+      return;
+    }
+
+    const x = (index % columns) * cellWidth;
+    const y = Math.floor(index / columns) * cellHeight;
+    context.fillStyle = color;
+    context.fillRect(x + 1, y + 1, cellWidth - 2, cellHeight - 2);
+    context.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    context.fillRect(x + 1, y + 1, cellWidth - 2, 3);
+    context.fillStyle = 'rgba(16, 24, 32, 0.3)';
+    context.fillRect(x + 1, y + cellHeight - 4, cellWidth - 2, 3);
+  });
+
+  context.strokeStyle = 'rgba(237, 245, 255, 0.08)';
+  context.lineWidth = 1;
+
+  for (let column = 0; column <= columns; column += 1) {
+    const x = Math.round(column * cellWidth) + 0.5;
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, canvas.height);
+    context.stroke();
+  }
+
+  for (let row = 0; row <= rows; row += 1) {
+    const y = Math.round(row * cellHeight) + 0.5;
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(canvas.width, y);
+    context.stroke();
+  }
+};
+
+const drawCanvases = (): void => {
+  const board = root.querySelector<HTMLCanvasElement>('[data-canvas="board"]');
+  const hold = root.querySelector<HTMLCanvasElement>('[data-canvas="hold"]');
+  const next = root.querySelector<HTMLCanvasElement>('[data-canvas="next"]');
+
+  if (board) {
+    drawGridCanvas(board, boardColumns, boardRows, createBoardCells());
+  }
+  if (hold) {
+    drawGridCanvas(hold, 4, 4, createMiniCells([1, 5, 9, 13], palette.hold));
+  }
+  if (next) {
+    drawGridCanvas(next, 4, 4, createMiniCells([4, 5, 6, 9], palette.next));
+  }
+};
 
 root.addEventListener('click', (event) => {
   const target = event.target;
