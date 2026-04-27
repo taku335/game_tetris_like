@@ -2,9 +2,21 @@ import './styles/app.css';
 
 type Screen = 'title' | 'game' | 'pause' | 'gameOver' | 'controls';
 type Cell = string | null;
+type Point = { x: number; y: number };
+type Piece = {
+  cells: Point[];
+  color: string;
+  x: number;
+  y: number;
+};
+type PieceDefinition = {
+  cells: Point[];
+  color: string;
+};
 
 const boardColumns = 10;
 const boardRows = 20;
+const dropIntervalMs = 650;
 const palette = {
   active: '#79d3c8',
   fixed: '#f2c14e',
@@ -12,6 +24,36 @@ const palette = {
   next: '#ef476f',
   hold: '#6c8cff',
 };
+const pieces: PieceDefinition[] = [
+  {
+    color: palette.active,
+    cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+  },
+  {
+    color: '#ef476f',
+    cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 1 }],
+  },
+  {
+    color: '#6c8cff',
+    cells: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+  },
+  {
+    color: '#f2c14e',
+    cells: [{ x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+  },
+  {
+    color: '#4ecdc4',
+    cells: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+  },
+  {
+    color: '#9b5de5',
+    cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+  },
+  {
+    color: '#06d6a0',
+    cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }],
+  },
+];
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -23,6 +65,9 @@ const root = app;
 
 let currentScreen: Screen = 'title';
 let previousScreen: Screen = 'title';
+let boardCells: Cell[] = Array<Cell>(boardColumns * boardRows).fill(null);
+let currentPiece: Piece | null = null;
+let lastDropTime = 0;
 
 const setScreen = (screen: Screen): void => {
   if (screen !== 'pause' && screen !== 'controls') {
@@ -36,6 +81,88 @@ const openControls = (): void => {
   previousScreen = currentScreen;
   currentScreen = 'controls';
   render();
+};
+
+const getCellIndex = (x: number, y: number): number => y * boardColumns + x;
+
+const createPiece = (): Piece => {
+  const definition = pieces[Math.floor(Math.random() * pieces.length)];
+  const maxX = Math.max(...definition.cells.map((cell) => cell.x));
+
+  return {
+    cells: definition.cells.map((cell) => ({ ...cell })),
+    color: definition.color,
+    x: Math.floor((boardColumns - maxX - 1) / 2),
+    y: 0,
+  };
+};
+
+const collides = (piece: Piece, offset: Point = { x: 0, y: 0 }): boolean =>
+  piece.cells.some((cell) => {
+    const x = piece.x + cell.x + offset.x;
+    const y = piece.y + cell.y + offset.y;
+
+    if (x < 0 || x >= boardColumns || y >= boardRows) {
+      return true;
+    }
+    if (y < 0) {
+      return false;
+    }
+
+    return boardCells[getCellIndex(x, y)] !== null;
+  });
+
+const resetGame = (): void => {
+  boardCells = Array<Cell>(boardColumns * boardRows).fill(null);
+  currentPiece = createPiece();
+  lastDropTime = performance.now();
+};
+
+const lockPiece = (piece: Piece): void => {
+  piece.cells.forEach((cell) => {
+    const x = piece.x + cell.x;
+    const y = piece.y + cell.y;
+
+    if (y >= 0 && y < boardRows && x >= 0 && x < boardColumns) {
+      boardCells[getCellIndex(x, y)] = piece.color;
+    }
+  });
+};
+
+const spawnNextPiece = (): void => {
+  const nextPiece = createPiece();
+  if (collides(nextPiece)) {
+    currentPiece = null;
+    currentScreen = 'gameOver';
+    render();
+    return;
+  }
+
+  currentPiece = nextPiece;
+};
+
+const stepGame = (): void => {
+  if (currentScreen !== 'game' || !currentPiece) {
+    return;
+  }
+
+  if (!collides(currentPiece, { x: 0, y: 1 })) {
+    currentPiece.y += 1;
+  } else {
+    lockPiece(currentPiece);
+    spawnNextPiece();
+  }
+
+  render();
+};
+
+const updateGame = (timestamp: number): void => {
+  if (timestamp - lastDropTime >= dropIntervalMs) {
+    lastDropTime = timestamp;
+    stepGame();
+  }
+
+  window.requestAnimationFrame(updateGame);
 };
 
 const renderTitle = (): string => `
@@ -208,22 +335,35 @@ function render(): void {
   drawCanvases();
 }
 
+const mergePieceCells = (cells: Cell[], piece: Piece, color: string): void => {
+  piece.cells.forEach((cell) => {
+    const x = piece.x + cell.x;
+    const y = piece.y + cell.y;
+
+    if (y >= 0 && y < boardRows && x >= 0 && x < boardColumns) {
+      cells[getCellIndex(x, y)] = color;
+    }
+  });
+};
+
 const createBoardCells = (): Cell[] => {
-  const cells = Array<Cell>(boardColumns * boardRows).fill(null);
-  const fixedCells = [156, 166, 176, 177, 188, 189];
-  const activeCells = [4, 14, 24, 25];
-  const ghostCells = [44, 54, 64, 65];
+  const cells = [...boardCells];
 
-  fixedCells.forEach((index) => {
-    cells[index] = palette.fixed;
-  });
-  ghostCells.forEach((index) => {
-    cells[index] = palette.ghost;
-  });
-  activeCells.forEach((index) => {
-    cells[index] = palette.active;
-  });
+  if (!currentPiece) {
+    return cells;
+  }
 
+  const ghostPiece: Piece = {
+    ...currentPiece,
+    cells: currentPiece.cells.map((cell) => ({ ...cell })),
+  };
+
+  while (!collides(ghostPiece, { x: 0, y: 1 })) {
+    ghostPiece.y += 1;
+  }
+
+  mergePieceCells(cells, ghostPiece, palette.ghost);
+  mergePieceCells(cells, currentPiece, currentPiece.color);
   return cells;
 };
 
@@ -313,6 +453,7 @@ root.addEventListener('click', (event) => {
   const action = target.dataset.action;
 
   if (action === 'start' || action === 'restart') {
+    resetGame();
     setScreen('game');
   } else if (action === 'controls') {
     openControls();
@@ -343,3 +484,4 @@ window.addEventListener('keydown', (event) => {
 });
 
 render();
+window.requestAnimationFrame(updateGame);
