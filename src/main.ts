@@ -152,6 +152,41 @@ const openControls = (): void => {
   render();
 };
 
+const startGame = (): void => {
+  resetGame();
+  setScreen('game');
+};
+
+const pauseGame = (): void => {
+  if (currentScreen !== 'game') {
+    return;
+  }
+
+  currentScreen = 'pause';
+  render();
+};
+
+const resumeGame = (): void => {
+  if (currentScreen !== 'pause') {
+    return;
+  }
+
+  lastDropTime = performance.now();
+  setScreen('game');
+};
+
+const finishGame = (): void => {
+  currentPiece = null;
+  currentScreen = 'gameOver';
+  render();
+};
+
+const returnToTitle = (): void => {
+  currentScreen = 'title';
+  previousScreen = 'title';
+  render();
+};
+
 const getGamepadStatusText = (): string =>
   activeGamepadName ? `Connected: ${activeGamepadName}` : 'Not Connected';
 
@@ -265,9 +300,7 @@ const lockPiece = (piece: Piece): void => {
 const spawnNextPiece = (): void => {
   const nextPiece = takeNextPiece();
   if (collides(nextPiece)) {
-    currentPiece = null;
-    currentScreen = 'gameOver';
-    render();
+    finishGame();
     return;
   }
 
@@ -349,14 +382,14 @@ const holdCurrentPiece = (): void => {
   if (heldDefinition) {
     currentPiece = createPiece(heldDefinition);
     if (collides(currentPiece)) {
-      currentPiece = null;
-      currentScreen = 'gameOver';
+      finishGame();
+      return;
     }
   } else {
     currentPiece = takeNextPiece();
     if (collides(currentPiece)) {
-      currentPiece = null;
-      currentScreen = 'gameOver';
+      finishGame();
+      return;
     }
   }
 
@@ -402,10 +435,9 @@ const applyInputAction = (action: InputAction): void => {
     holdCurrentPiece();
   } else if (action === 'pause') {
     if (currentScreen === 'game') {
-      currentScreen = 'pause';
-      render();
+      pauseGame();
     } else if (currentScreen === 'pause') {
-      setScreen('game');
+      resumeGame();
     }
   }
 };
@@ -803,20 +835,17 @@ root.addEventListener('click', (event) => {
   const action = target.dataset.action;
 
   if (action === 'start' || action === 'restart') {
-    resetGame();
-    setScreen('game');
+    startGame();
   } else if (action === 'controls') {
     openControls();
   } else if (action === 'pause') {
-    currentScreen = 'pause';
-    render();
+    pauseGame();
   } else if (action === 'resume') {
-    setScreen('game');
+    resumeGame();
   } else if (action === 'game-over') {
-    currentScreen = 'gameOver';
-    render();
+    finishGame();
   } else if (action === 'title') {
-    setScreen('title');
+    returnToTitle();
   } else if (action === 'back') {
     setScreen(previousScreen === 'controls' ? 'title' : previousScreen);
   }
