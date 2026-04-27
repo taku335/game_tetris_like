@@ -1,5 +1,10 @@
 import './styles/app.css';
-import { gamepadAxisMap, gamepadButtonMap, keyboardMap } from './game/input';
+import {
+  gamepadAxisMap,
+  gamepadButtonMap,
+  keyboardMap,
+  shouldApplyGamepadAction,
+} from './game/input';
 import type { InputAction } from './game/input';
 import {
   calculateDropInterval,
@@ -457,7 +462,20 @@ const shouldApplyRepeatedInput = (
   return true;
 };
 
-const pollGamepadButtons = (gamepad: Gamepad, timestamp: number): void => {
+const applyGamepadAction = (
+  appliedActions: Set<InputAction>,
+  action: InputAction,
+): void => {
+  if (shouldApplyGamepadAction(appliedActions, action)) {
+    applyInputAction(action);
+  }
+};
+
+const pollGamepadButtons = (
+  gamepad: Gamepad,
+  timestamp: number,
+  appliedActions: Set<InputAction>,
+): void => {
   gamepadButtonMap.forEach((binding) => {
     const pressed = gamepad.buttons[binding.button]?.pressed ?? false;
     const wasPressed = pressedGamepadButtons.has(binding.button);
@@ -469,20 +487,24 @@ const pollGamepadButtons = (gamepad: Gamepad, timestamp: number): void => {
     }
 
     if (!binding.repeat && !wasPressed) {
-      applyInputAction(binding.action);
+      applyGamepadAction(appliedActions, binding.action);
     } else if (
       binding.repeat &&
       (!wasPressed ||
         shouldApplyRepeatedInput(String(binding.button), timestamp, buttonRepeatTimes))
     ) {
-      applyInputAction(binding.action);
+      applyGamepadAction(appliedActions, binding.action);
     }
 
     pressedGamepadButtons.add(binding.button);
   });
 };
 
-const pollGamepadAxes = (gamepad: Gamepad, timestamp: number): void => {
+const pollGamepadAxes = (
+  gamepad: Gamepad,
+  timestamp: number,
+  appliedActions: Set<InputAction>,
+): void => {
   gamepadAxisMap.forEach((binding) => {
     const value = gamepad.axes[binding.axis] ?? 0;
     const active =
@@ -497,7 +519,7 @@ const pollGamepadAxes = (gamepad: Gamepad, timestamp: number): void => {
     }
 
     if (shouldApplyRepeatedInput(key, timestamp, axisRepeatTimes)) {
-      applyInputAction(binding.action);
+      applyGamepadAction(appliedActions, binding.action);
     }
   });
 };
@@ -508,8 +530,9 @@ const pollGamepads = (timestamp: number): void => {
     return;
   }
 
-  pollGamepadButtons(gamepad, timestamp);
-  pollGamepadAxes(gamepad, timestamp);
+  const appliedActions = new Set<InputAction>();
+  pollGamepadButtons(gamepad, timestamp, appliedActions);
+  pollGamepadAxes(gamepad, timestamp, appliedActions);
 };
 
 const updateGame = (timestamp: number): void => {
