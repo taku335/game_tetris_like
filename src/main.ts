@@ -1,7 +1,15 @@
 import './styles/app.css';
+import { gamepadAxisMap, gamepadButtonMap, keyboardMap } from './game/input';
+import type { InputAction } from './game/input';
+import {
+  calculateDropInterval,
+  calculateLevel,
+  calculateLineClearScore,
+  clearCompletedRows,
+} from './game/rules';
+import type { Cell } from './game/rules';
 
 type Screen = 'title' | 'game' | 'pause' | 'gameOver' | 'controls';
-type Cell = string | null;
 type Point = { x: number; y: number };
 type Piece = {
   definition: PieceDefinition;
@@ -13,25 +21,6 @@ type Piece = {
 type PieceDefinition = {
   cells: Point[];
   color: string;
-};
-type InputAction =
-  | 'moveLeft'
-  | 'moveRight'
-  | 'softDrop'
-  | 'hardDrop'
-  | 'rotateClockwise'
-  | 'rotateCounterclockwise'
-  | 'hold'
-  | 'pause';
-type GamepadButtonBinding = {
-  button: number;
-  action: InputAction;
-  repeat: boolean;
-};
-type GamepadAxisBinding = {
-  axis: number;
-  direction: -1 | 1;
-  action: InputAction;
 };
 type GamepadConnectionState = 'waiting' | 'connected' | 'disconnected' | 'unsupported';
 
@@ -98,41 +87,6 @@ let lastDropTime = 0;
 let score = 0;
 let lines = 0;
 let level = 1;
-const keyboardMap = new Map<string, InputAction>([
-  ['ArrowLeft', 'moveLeft'],
-  ['KeyA', 'moveLeft'],
-  ['ArrowRight', 'moveRight'],
-  ['KeyD', 'moveRight'],
-  ['ArrowDown', 'softDrop'],
-  ['KeyS', 'softDrop'],
-  ['Space', 'hardDrop'],
-  ['ArrowUp', 'rotateClockwise'],
-  ['KeyW', 'rotateClockwise'],
-  ['KeyX', 'rotateClockwise'],
-  ['KeyZ', 'rotateCounterclockwise'],
-  ['KeyC', 'hold'],
-  ['ShiftLeft', 'hold'],
-  ['ShiftRight', 'hold'],
-  ['Escape', 'pause'],
-  ['KeyP', 'pause'],
-]);
-const gamepadButtonMap: GamepadButtonBinding[] = [
-  { button: 14, action: 'moveLeft', repeat: true },
-  { button: 15, action: 'moveRight', repeat: true },
-  { button: 13, action: 'softDrop', repeat: true },
-  { button: 0, action: 'rotateClockwise', repeat: false },
-  { button: 1, action: 'rotateCounterclockwise', repeat: false },
-  { button: 2, action: 'hardDrop', repeat: false },
-  { button: 3, action: 'hardDrop', repeat: false },
-  { button: 4, action: 'hold', repeat: false },
-  { button: 5, action: 'hold', repeat: false },
-  { button: 9, action: 'pause', repeat: false },
-];
-const gamepadAxisMap: GamepadAxisBinding[] = [
-  { axis: 0, direction: -1, action: 'moveLeft' },
-  { axis: 0, direction: 1, action: 'moveRight' },
-  { axis: 1, direction: 1, action: 'softDrop' },
-];
 const pressedGamepadButtons = new Set<number>();
 const buttonRepeatTimes = new Map<string, number>();
 const axisRepeatTimes = new Map<string, number>();
@@ -290,40 +244,24 @@ const resetGame = (): void => {
 };
 
 const getDropInterval = (): number =>
-  Math.max(minDropIntervalMs, baseDropIntervalMs - (level - 1) * 55);
+  calculateDropInterval(level, baseDropIntervalMs, minDropIntervalMs);
 
 const addScore = (points: number): void => {
   score += points * level;
 };
 
 const clearCompletedLines = (): void => {
-  const remainingRows: Cell[][] = [];
-  let cleared = 0;
-
-  for (let row = 0; row < boardRows; row += 1) {
-    const start = row * boardColumns;
-    const rowCells = boardCells.slice(start, start + boardColumns);
-
-    if (rowCells.every((cell) => cell !== null)) {
-      cleared += 1;
-    } else {
-      remainingRows.push(rowCells);
-    }
-  }
+  const result = clearCompletedRows(boardCells, boardColumns, boardRows);
+  const { cleared } = result;
 
   if (cleared === 0) {
     return;
   }
 
-  const emptyRows = Array.from({ length: cleared }, () =>
-    Array<Cell>(boardColumns).fill(null),
-  );
-  boardCells = [...emptyRows, ...remainingRows].flat();
+  boardCells = result.cells;
   lines += cleared;
-  level = Math.floor(lines / 10) + 1;
-
-  const lineScores = [0, 100, 300, 500, 800];
-  addScore(lineScores[cleared] ?? cleared * 200);
+  level = calculateLevel(lines);
+  score += calculateLineClearScore(cleared, level);
 };
 
 const lockPiece = (piece: Piece): void => {
