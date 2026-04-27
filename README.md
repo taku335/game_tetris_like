@@ -32,3 +32,7 @@ npm run preview
 - サーバーサイド処理は使いません
 - PCブラウザの Chrome / Edge を優先します
 - 任天堂・公式テトリスの画像、音源、ロゴ、商標表現は使いません
+
+## GitHub Pages
+
+`main` ブランチに反映されると、GitHub Actions が `BASE_PATH=/game_tetris_like/` を指定してビルドし、`dist` を GitHub Pages にデプロイします。
