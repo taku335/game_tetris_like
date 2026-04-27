@@ -36,7 +36,8 @@ type GamepadAxisBinding = {
 
 const boardColumns = 10;
 const boardRows = 20;
-const dropIntervalMs = 650;
+const baseDropIntervalMs = 650;
+const minDropIntervalMs = 120;
 const inputRepeatMs = 120;
 const gamepadAxisThreshold = 0.55;
 const palette = {
@@ -92,6 +93,9 @@ let currentPiece: Piece | null = null;
 let holdPiece: PieceDefinition | null = null;
 let canHold = true;
 let lastDropTime = 0;
+let score = 0;
+let lines = 0;
+let level = 1;
 const keyboardMap = new Map<string, InputAction>([
   ['ArrowLeft', 'moveLeft'],
   ['KeyA', 'moveLeft'],
@@ -184,7 +188,47 @@ const resetGame = (): void => {
   currentPiece = createPiece();
   holdPiece = null;
   canHold = true;
+  score = 0;
+  lines = 0;
+  level = 1;
   lastDropTime = performance.now();
+};
+
+const getDropInterval = (): number =>
+  Math.max(minDropIntervalMs, baseDropIntervalMs - (level - 1) * 55);
+
+const addScore = (points: number): void => {
+  score += points * level;
+};
+
+const clearCompletedLines = (): void => {
+  const remainingRows: Cell[][] = [];
+  let cleared = 0;
+
+  for (let row = 0; row < boardRows; row += 1) {
+    const start = row * boardColumns;
+    const rowCells = boardCells.slice(start, start + boardColumns);
+
+    if (rowCells.every((cell) => cell !== null)) {
+      cleared += 1;
+    } else {
+      remainingRows.push(rowCells);
+    }
+  }
+
+  if (cleared === 0) {
+    return;
+  }
+
+  const emptyRows = Array.from({ length: cleared }, () =>
+    Array<Cell>(boardColumns).fill(null),
+  );
+  boardCells = [...emptyRows, ...remainingRows].flat();
+  lines += cleared;
+  level = Math.floor(lines / 10) + 1;
+
+  const lineScores = [0, 100, 300, 500, 800];
+  addScore(lineScores[cleared] ?? cleared * 200);
 };
 
 const lockPiece = (piece: Piece): void => {
@@ -196,6 +240,7 @@ const lockPiece = (piece: Piece): void => {
       boardCells[getCellIndex(x, y)] = piece.color;
     }
   });
+  clearCompletedLines();
 };
 
 const spawnNextPiece = (): void => {
@@ -262,10 +307,13 @@ const hardDropCurrentPiece = (): void => {
     return;
   }
 
+  let droppedRows = 0;
   while (!collides(currentPiece, { x: 0, y: 1 })) {
     currentPiece.y += 1;
+    droppedRows += 1;
   }
 
+  addScore(droppedRows * 2);
   lockPiece(currentPiece);
   spawnNextPiece();
   render();
@@ -318,6 +366,8 @@ const applyInputAction = (action: InputAction): void => {
       lockPiece(currentPiece);
       spawnNextPiece();
       render();
+    } else {
+      addScore(1);
     }
   } else if (action === 'hardDrop') {
     hardDropCurrentPiece();
@@ -430,7 +480,7 @@ const pollGamepads = (timestamp: number): void => {
 const updateGame = (timestamp: number): void => {
   pollGamepads(timestamp);
 
-  if (timestamp - lastDropTime >= dropIntervalMs) {
+  if (timestamp - lastDropTime >= getDropInterval()) {
     lastDropTime = timestamp;
     stepGame();
   }
@@ -484,9 +534,9 @@ const renderGame = (overlay?: 'pause' | 'gameOver'): string => `
         </section>
         <section class="panel stats-panel">
           <h2>Score</h2>
-          <strong>012340</strong>
+          <strong>${score.toString().padStart(6, '0')}</strong>
           <h2>Lines</h2>
-          <strong>18</strong>
+          <strong>${lines}</strong>
         </section>
       </aside>
 
@@ -501,7 +551,7 @@ const renderGame = (overlay?: 'pause' | 'gameOver'): string => `
         </section>
         <section class="panel stats-panel">
           <h2>Level</h2>
-          <strong>03</strong>
+          <strong>${level.toString().padStart(2, '0')}</strong>
         </section>
         <section class="panel controls-panel">
           <h2>Controls</h2>
@@ -543,10 +593,10 @@ const renderGameOverOverlay = (): string => `
     <div class="modal-panel score-modal">
       <h2 id="game-over-title">Game Over</h2>
       <dl>
-        <div><dt>Score</dt><dd>024500</dd></div>
-        <div><dt>Lines</dt><dd>42</dd></div>
-        <div><dt>Level</dt><dd>06</dd></div>
-        <div><dt>High Score</dt><dd>024500</dd></div>
+        <div><dt>Score</dt><dd>${score.toString().padStart(6, '0')}</dd></div>
+        <div><dt>Lines</dt><dd>${lines}</dd></div>
+        <div><dt>Level</dt><dd>${level.toString().padStart(2, '0')}</dd></div>
+        <div><dt>High Score</dt><dd>000000</dd></div>
       </dl>
       <div class="modal-actions">
         <button type="button" data-action="restart">Restart</button>
