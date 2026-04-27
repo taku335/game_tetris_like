@@ -33,6 +33,7 @@ type GamepadAxisBinding = {
   direction: -1 | 1;
   action: InputAction;
 };
+type GamepadConnectionState = 'waiting' | 'connected' | 'disconnected' | 'unsupported';
 
 const boardColumns = 10;
 const boardRows = 20;
@@ -158,6 +159,8 @@ const saveHighScore = (value: number): void => {
 };
 
 let highScore = loadHighScore();
+let gamepadConnectionState: GamepadConnectionState =
+  'getGamepads' in navigator ? 'waiting' : 'unsupported';
 
 const formatScore = (value: number): string => value.toString().padStart(6, '0');
 
@@ -215,8 +218,18 @@ const returnToTitle = (): void => {
   render();
 };
 
-const getGamepadStatusText = (): string =>
-  activeGamepadName ? `Connected: ${activeGamepadName}` : 'Not Connected';
+const getGamepadStatusText = (): string => {
+  if (gamepadConnectionState === 'connected' && activeGamepadName) {
+    return `Connected: ${activeGamepadName}`;
+  }
+  if (gamepadConnectionState === 'disconnected') {
+    return 'Disconnected';
+  }
+  if (gamepadConnectionState === 'unsupported') {
+    return 'Gamepad API unavailable';
+  }
+  return 'Waiting for controller';
+};
 
 const getCellIndex = (x: number, y: number): number => y * boardColumns + x;
 
@@ -487,6 +500,7 @@ const getActiveGamepad = (): Gamepad | null => {
 
   activeGamepadIndex = gamepad.index;
   activeGamepadName = gamepad.id;
+  gamepadConnectionState = 'connected';
   render();
   return gamepad;
 };
@@ -719,6 +733,7 @@ const renderControls = (): string => `
           <div><dt>+</dt><dd>Pause</dd></div>
         </dl>
         <p class="connection-state">Gamepad Status: ${getGamepadStatusText()}</p>
+        <p class="connection-state">Button numbers can vary by OS and browser.</p>
       </article>
     </section>
     <button type="button" data-action="back">Back</button>
@@ -882,6 +897,7 @@ root.addEventListener('click', (event) => {
 window.addEventListener('gamepadconnected', (event) => {
   activeGamepadIndex = event.gamepad.index;
   activeGamepadName = event.gamepad.id;
+  gamepadConnectionState = 'connected';
   render();
 });
 
@@ -889,6 +905,7 @@ window.addEventListener('gamepaddisconnected', (event) => {
   if (activeGamepadIndex === event.gamepad.index) {
     activeGamepadIndex = null;
     activeGamepadName = null;
+    gamepadConnectionState = 'disconnected';
     pressedGamepadButtons.clear();
     buttonRepeatTimes.clear();
     axisRepeatTimes.clear();
