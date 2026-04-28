@@ -1,11 +1,14 @@
 import './styles/app.css';
 import {
-  gamepadAxisMap,
-  gamepadButtonMap,
+  collectGamepadActionStates,
+  collectKeyboardActionStates,
+  createEmptyGamepadSnapshot,
+  createInputTimingState,
   keyboardMap,
-  shouldApplyGamepadAction,
+  keyboardMenuMap,
+  resolveTriggeredActions,
 } from './game/input';
-import type { InputAction } from './game/input';
+import type { GamepadDebugSnapshot, GameplayAction, InputAction, InputMode } from './game/input';
 import {
   calculateDropInterval,
   calculateLevel,
@@ -33,7 +36,8 @@ const boardColumns = 10;
 const boardRows = 20;
 const baseDropIntervalMs = 650;
 const minDropIntervalMs = 120;
-const inputRepeatMs = 120;
+const inputRepeatDelayMs = 260;
+const inputRepeatIntervalMs = 120;
 const gamepadAxisThreshold = 0.55;
 const palette = {
   active: '#79d3c8',
@@ -92,12 +96,16 @@ let lastDropTime = 0;
 let score = 0;
 let lines = 0;
 let level = 1;
-const pressedGamepadButtons = new Set<number>();
-const buttonRepeatTimes = new Map<string, number>();
-const axisRepeatTimes = new Map<string, number>();
+const pressedKeyboardCodes = new Set<string>();
+const inputTimingState = createInputTimingState();
 let activeGamepadIndex: number | null = null;
 let activeGamepadName: string | null = null;
+let selectedTitleMenuIndex = 0;
+let latestGamepadSnapshot: GamepadDebugSnapshot = createEmptyGamepadSnapshot();
+let suppressInputUntilNeutral = false;
+let lastControlsRenderTime = 0;
 const highScoreStorageKey = 'falling-blocks:high-score';
+const titleMenuActions = ['start', 'controls'] as const;
 
 const loadHighScore = (): number => {
   try {
@@ -123,17 +131,29 @@ let gamepadConnectionState: GamepadConnectionState =
 
 const formatScore = (value: number): string => value.toString().padStart(6, '0');
 
+const escapeHtml = (value: string): string =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const resetInputTiming = (): void => {
+  inputTimingState.heldActions.clear();
+  inputTimingState.repeatTimes.clear();
+  inputTimingState.repeatedActions.clear();
+  suppressInputUntilNeutral = true;
+};
+
 const setScreen = (screen: Screen): void => {
   if (screen !== 'pause' && screen !== 'controls') {
     previousScreen = screen;
   }
   currentScreen = screen;
+  resetInputTiming();
   render();
 };
 
 const openControls = (): void => {
   previousScreen = currentScreen;
   currentScreen = 'controls';
+  resetInputTiming();
   render();
 };
 
@@ -148,6 +168,7 @@ const pauseGame = (): void => {
   }
 
   currentScreen = 'pause';
+  resetInputTiming();
   render();
 };
 
@@ -168,12 +189,15 @@ const finishGame = (): void => {
 
   currentPiece = null;
   currentScreen = 'gameOver';
+  resetInputTiming();
   render();
 };
 
 const returnToTitle = (): void => {
   currentScreen = 'title';
   previousScreen = 'title';
+  selectedTitleMenuIndex = 0;
+  resetInputTiming();
   render();
 };
 
@@ -396,7 +420,7 @@ const stepGame = (): void => {
   render();
 };
 
-const applyInputAction = (action: InputAction): void => {
+const applyGameplayAction = (action: GameplayAction): void => {
   if (action === 'moveLeft') {
     moveCurrentPiece(-1, 0);
   } else if (action === 'moveRight') {
@@ -448,95 +472,90 @@ const getActiveGamepad = (): Gamepad | null => {
   return gamepad;
 };
 
-const shouldApplyRepeatedInput = (
-  key: string,
-  timestamp: number,
-  repeatTimes: Map<string, number>,
-): boolean => {
-  const lastApplied = repeatTimes.get(key) ?? 0;
-  if (timestamp - lastApplied < inputRepeatMs) {
-    return false;
-  }
+const getInputMode = (): InputMode =>
+  currentScreen === 'title' || currentScreen === 'controls' ? 'menu' : 'gameplay';
 
-  repeatTimes.set(key, timestamp);
-  return true;
-};
-
-const applyGamepadAction = (
-  appliedActions: Set<InputAction>,
-  action: InputAction,
-): void => {
-  if (shouldApplyGamepadAction(appliedActions, action)) {
-    applyInputAction(action);
+const activateTitleSelection = (): void => {
+  const action = titleMenuActions[selectedTitleMenuIndex];
+  if (action === 'start') {
+    startGame();
+  } else {
+    openControls();
   }
 };
 
-const pollGamepadButtons = (
-  gamepad: Gamepad,
-  timestamp: number,
-  appliedActions: Set<InputAction>,
-): void => {
-  gamepadButtonMap.forEach((binding) => {
-    const pressed = gamepad.buttons[binding.button]?.pressed ?? false;
-    const wasPressed = pressedGamepadButtons.has(binding.button);
-
-    if (!pressed) {
-      pressedGamepadButtons.delete(binding.button);
-      buttonRepeatTimes.delete(String(binding.button));
-      return;
+const applyMenuAction = (action: InputAction): void => {
+  if (currentScreen === 'title') {
+    if (action === 'menuPrevious' || action === 'menuNext') {
+      const direction = action === 'menuPrevious' ? -1 : 1;
+      selectedTitleMenuIndex =
+        (selectedTitleMenuIndex + direction + titleMenuActions.length) % titleMenuActions.length;
+      render();
+    } else if (action === 'confirm') {
+      activateTitleSelection();
     }
-
-    if (!binding.repeat && !wasPressed) {
-      applyGamepadAction(appliedActions, binding.action);
-    } else if (
-      binding.repeat &&
-      (!wasPressed ||
-        shouldApplyRepeatedInput(String(binding.button), timestamp, buttonRepeatTimes))
-    ) {
-      applyGamepadAction(appliedActions, binding.action);
-    }
-
-    pressedGamepadButtons.add(binding.button);
-  });
-};
-
-const pollGamepadAxes = (
-  gamepad: Gamepad,
-  timestamp: number,
-  appliedActions: Set<InputAction>,
-): void => {
-  gamepadAxisMap.forEach((binding) => {
-    const value = gamepad.axes[binding.axis] ?? 0;
-    const active =
-      binding.direction < 0
-        ? value <= -gamepadAxisThreshold
-        : value >= gamepadAxisThreshold;
-    const key = `${binding.axis}:${binding.direction}`;
-
-    if (!active) {
-      axisRepeatTimes.delete(key);
-      return;
-    }
-
-    if (shouldApplyRepeatedInput(key, timestamp, axisRepeatTimes)) {
-      applyGamepadAction(appliedActions, binding.action);
-    }
-  });
-};
-
-const pollGamepads = (timestamp: number): void => {
-  const gamepad = getActiveGamepad();
-  if (!gamepad) {
     return;
   }
 
-  const appliedActions = new Set<InputAction>();
-  pollGamepadButtons(gamepad, timestamp, appliedActions);
-  pollGamepadAxes(gamepad, timestamp, appliedActions);
+  if (currentScreen === 'controls' && (action === 'back' || action === 'confirm')) {
+    setScreen(previousScreen === 'controls' ? 'title' : previousScreen);
+  }
+};
+
+const applyTriggeredAction = (action: InputAction): void => {
+  if (
+    action === 'menuPrevious' ||
+    action === 'menuNext' ||
+    action === 'confirm' ||
+    action === 'back'
+  ) {
+    applyMenuAction(action);
+  } else {
+    applyGameplayAction(action);
+  }
+};
+
+const pollInputs = (timestamp: number): void => {
+  const gamepad = getActiveGamepad();
+  const mode = getInputMode();
+  const keyboardStates = collectKeyboardActionStates(pressedKeyboardCodes, mode);
+  const { states: gamepadStates, snapshot } = collectGamepadActionStates(
+    gamepad,
+    mode,
+    gamepadAxisThreshold,
+  );
+
+  latestGamepadSnapshot = snapshot;
+  const inputStates = [...keyboardStates, ...gamepadStates];
+  if (suppressInputUntilNeutral) {
+    if (!inputStates.some((state) => state.pressed)) {
+      suppressInputUntilNeutral = false;
+    }
+    inputTimingState.heldActions.clear();
+    inputTimingState.repeatTimes.clear();
+    inputTimingState.repeatedActions.clear();
+    return;
+  }
+
+  const actions = resolveTriggeredActions(
+    inputStates,
+    inputTimingState,
+    timestamp,
+    {
+      repeatDelayMs: inputRepeatDelayMs,
+      repeatIntervalMs: inputRepeatIntervalMs,
+    },
+  );
+  actions.forEach(applyTriggeredAction);
 };
 
 const updateGame = (timestamp: number): void => {
-  pollGamepads(timestamp);
+  pollInputs(timestamp);
+
+  if (currentScreen === 'controls' && timestamp - lastControlsRenderTime >= 33) {
+    lastControlsRenderTime = timestamp;
+    render();
+  }
 
   if (timestamp - lastDropTime >= getDropInterval()) {
     lastDropTime = timestamp;
@@ -554,8 +573,8 @@ const renderTitle = (): string => `
       <p class="summary">Keyboard and Gamepad API ready static web game.</p>
     </div>
     <nav class="menu-actions" aria-label="Title menu">
-      <button type="button" data-action="start">Start Game</button>
-      <button type="button" data-action="controls">Controls</button>
+      <button type="button" data-action="start" data-selected="${selectedTitleMenuIndex === 0}">Start Game</button>
+      <button type="button" data-action="controls" data-selected="${selectedTitleMenuIndex === 1}">Controls</button>
     </nav>
     <dl class="status-grid" aria-label="Status">
       <div>
@@ -664,6 +683,96 @@ const renderGameOverOverlay = (): string => `
   </section>
 `;
 
+const formatAxisValue = (value: number | undefined): string => (value ?? 0).toFixed(2);
+
+const renderSourceList = (sources: { label: string; type: string }[]): string =>
+  sources.length === 0
+    ? '<span class="muted">Idle</span>'
+    : sources
+        .map((source) => `<span class="source-pill">${escapeHtml(source.label)}</span>`)
+        .join('');
+
+const renderGamepadDiagnostics = (): string => {
+  const snapshot = latestGamepadSnapshot;
+  const axisX = snapshot.axes[0] ?? 0;
+  const axisY = snapshot.axes[1] ?? 0;
+  const stickX = Math.max(0, Math.min(100, 50 + axisX * 42));
+  const stickY = Math.max(0, Math.min(100, 50 + axisY * 42));
+  const directionActions: InputAction[] = [
+    currentScreen === 'controls' ? 'menuPrevious' : 'moveLeft',
+    currentScreen === 'controls' ? 'menuNext' : 'moveRight',
+    'confirm',
+    'back',
+  ];
+  const activeButtons = snapshot.buttons.filter((button) => button.pressed);
+
+  return `
+    <section class="controller-debug" aria-label="Controller input monitor">
+      <div class="debug-status">
+        <div>
+          <dt>Status</dt>
+          <dd>${snapshot.connected ? 'Connected' : getGamepadStatusText()}</dd>
+        </div>
+        <div>
+          <dt>Controller</dt>
+          <dd>${snapshot.id ? escapeHtml(snapshot.id) : 'None'}</dd>
+        </div>
+        <div>
+          <dt>Index</dt>
+          <dd>${snapshot.index ?? '-'}</dd>
+        </div>
+      </div>
+
+      <div class="debug-grid">
+        <section class="debug-block">
+          <h3>D-Pad / Directions</h3>
+          <div class="direction-pad">
+            ${directionActions
+              .map((action) => {
+                const sources = snapshot.activeActionSources.get(action) ?? [];
+                const sourceClass = sources.length > 1 ? ' multi-source' : '';
+                return `<div class="direction-cell${sources.length > 0 ? ' is-active' : ''}${sourceClass}">
+                  <span>${action}</span>
+                  <small>${renderSourceList(sources)}</small>
+                </div>`;
+              })
+              .join('')}
+          </div>
+        </section>
+
+        <section class="debug-block">
+          <h3>Left Stick</h3>
+          <div class="stick-preview" aria-label="Left stick position">
+            <span style="left: ${stickX}%; top: ${stickY}%"></span>
+          </div>
+          <dl class="axis-readout">
+            <div><dt>Axis 0</dt><dd>${formatAxisValue(axisX)}</dd></div>
+            <div><dt>Axis 1</dt><dd>${formatAxisValue(axisY)}</dd></div>
+          </dl>
+        </section>
+
+        <section class="debug-block">
+          <h3>Buttons</h3>
+          <div class="button-monitor">
+            ${snapshot.buttons
+              .map(
+                (button) => `<span class="${button.pressed ? 'is-active' : ''}">
+                  ${button.index}: ${escapeHtml(button.label)}
+                </span>`,
+              )
+              .join('')}
+          </div>
+          <p class="connection-state">Pressed: ${
+            activeButtons.length > 0
+              ? activeButtons.map((button) => escapeHtml(button.label)).join(', ')
+              : 'None'
+          }</p>
+        </section>
+      </div>
+    </section>
+  `;
+};
+
 const renderControls = (): string => `
   <main class="screen controls-screen" aria-labelledby="controls-title">
     <header class="screen-header">
@@ -695,6 +804,7 @@ const renderControls = (): string => `
         </dl>
         <p class="connection-state">Gamepad Status: ${getGamepadStatusText()}</p>
         <p class="connection-state">Button numbers can vary by OS and browser.</p>
+        ${renderGamepadDiagnostics()}
       </article>
     </section>
     <button type="button" data-action="back">Back</button>
@@ -867,21 +977,23 @@ window.addEventListener('gamepaddisconnected', (event) => {
     activeGamepadIndex = null;
     activeGamepadName = null;
     gamepadConnectionState = 'disconnected';
-    pressedGamepadButtons.clear();
-    buttonRepeatTimes.clear();
-    axisRepeatTimes.clear();
+    latestGamepadSnapshot = createEmptyGamepadSnapshot();
+    resetInputTiming();
     render();
   }
 });
 
 window.addEventListener('keydown', (event) => {
-  const action = keyboardMap.get(event.code);
-  if (!action) {
+  if (!keyboardMap.has(event.code) && !keyboardMenuMap.has(event.code)) {
     return;
   }
 
   event.preventDefault();
-  applyInputAction(action);
+  pressedKeyboardCodes.add(event.code);
+});
+
+window.addEventListener('keyup', (event) => {
+  pressedKeyboardCodes.delete(event.code);
 });
 
 render();
