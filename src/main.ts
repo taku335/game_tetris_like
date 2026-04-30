@@ -1,14 +1,21 @@
 import './styles/app.css';
 import {
-  collectGamepadActionStates,
+  collectControllerActionStates,
   collectKeyboardActionStates,
-  createEmptyGamepadSnapshot,
+  createControllerDebugSnapshot,
+  createControllerInput,
+  createEmptyControllerDebugSnapshot,
   createInputTimingState,
+  dedupeActions,
+  filterControllerEdgeActions,
+  getControllerActionInputs,
   keyboardMap,
   keyboardMenuMap,
+  physicalInputLabels,
+  controllerPhysicalInputs,
   resolveTriggeredActions,
 } from './game/input';
-import type { GamepadDebugSnapshot, GameplayAction, InputAction, InputMode } from './game/input';
+import type { ControllerDebugSnapshot, GameplayAction, InputAction, InputMode } from './game/input';
 import {
   calculateDropInterval,
   calculateLevel,
@@ -30,7 +37,6 @@ type PieceDefinition = {
   cells: Point[];
   color: string;
 };
-type GamepadConnectionState = 'waiting' | 'connected' | 'disconnected' | 'unsupported';
 
 const boardColumns = 10;
 const boardRows = 20;
@@ -38,7 +44,6 @@ const baseDropIntervalMs = 650;
 const minDropIntervalMs = 120;
 const inputRepeatDelayMs = 260;
 const inputRepeatIntervalMs = 120;
-const gamepadAxisThreshold = 0.55;
 const palette = {
   active: '#79d3c8',
   fixed: '#f2c14e',
@@ -98,10 +103,12 @@ let lines = 0;
 let level = 1;
 const pressedKeyboardCodes = new Set<string>();
 const inputTimingState = createInputTimingState();
-let activeGamepadIndex: number | null = null;
-let activeGamepadName: string | null = null;
+const controllerInput = createControllerInput();
+const controllerEdgeActions: InputAction[] = [];
 let selectedTitleMenuIndex = 0;
-let latestGamepadSnapshot: GamepadDebugSnapshot = createEmptyGamepadSnapshot();
+let latestControllerSnapshot: ControllerDebugSnapshot = createEmptyControllerDebugSnapshot(
+  controllerInput.savedConfigState,
+);
 let suppressInputUntilNeutral = false;
 let lastControlsRenderTime = 0;
 const highScoreStorageKey = 'falling-blocks:high-score';
@@ -126,8 +133,6 @@ const saveHighScore = (value: number): void => {
 };
 
 let highScore = loadHighScore();
-let gamepadConnectionState: GamepadConnectionState =
-  'getGamepads' in navigator ? 'waiting' : 'unsupported';
 
 const formatScore = (value: number): string => value.toString().padStart(6, '0');
 
@@ -202,14 +207,14 @@ const returnToTitle = (): void => {
 };
 
 const getGamepadStatusText = (): string => {
-  if (gamepadConnectionState === 'connected' && activeGamepadName) {
-    return `Connected: ${activeGamepadName}`;
-  }
-  if (gamepadConnectionState === 'disconnected') {
-    return 'Disconnected';
-  }
-  if (gamepadConnectionState === 'unsupported') {
+  if (!latestControllerSnapshot.supported) {
     return 'Gamepad API unavailable';
+  }
+  if (latestControllerSnapshot.selectedGamepad) {
+    return `Connected: ${latestControllerSnapshot.selectedGamepad.id}`;
+  }
+  if (latestControllerSnapshot.connectedGamepads.length > 0) {
+    return 'Connected';
   }
   return 'Waiting for controller';
 };
@@ -435,9 +440,9 @@ const applyGameplayAction = (action: GameplayAction): void => {
     }
   } else if (action === 'hardDrop') {
     hardDropCurrentPiece();
-  } else if (action === 'rotateClockwise') {
+  } else if (action === 'rotateCW') {
     rotateCurrentPiece(true);
-  } else if (action === 'rotateCounterclockwise') {
+  } else if (action === 'rotateCCW') {
     rotateCurrentPiece(false);
   } else if (action === 'hold') {
     holdCurrentPiece();
@@ -448,28 +453,6 @@ const applyGameplayAction = (action: GameplayAction): void => {
       resumeGame();
     }
   }
-};
-
-const getActiveGamepad = (): Gamepad | null => {
-  const gamepads = navigator.getGamepads?.();
-  if (!gamepads) {
-    return null;
-  }
-
-  if (activeGamepadIndex !== null) {
-    return gamepads[activeGamepadIndex] ?? null;
-  }
-
-  const gamepad = gamepads.find((candidate) => candidate !== null);
-  if (!gamepad) {
-    return null;
-  }
-
-  activeGamepadIndex = gamepad.index;
-  activeGamepadName = gamepad.id;
-  gamepadConnectionState = 'connected';
-  render();
-  return gamepad;
 };
 
 const getInputMode = (): InputMode =>
@@ -516,19 +499,15 @@ const applyTriggeredAction = (action: InputAction): void => {
 };
 
 const pollInputs = (timestamp: number): void => {
-  const gamepad = getActiveGamepad();
   const mode = getInputMode();
   const keyboardStates = collectKeyboardActionStates(pressedKeyboardCodes, mode);
-  const { states: gamepadStates, snapshot } = collectGamepadActionStates(
-    gamepad,
-    mode,
-    gamepadAxisThreshold,
-  );
-
-  latestGamepadSnapshot = snapshot;
-  const inputStates = [...keyboardStates, ...gamepadStates];
+  const controllerActions = controllerInput.mapper.getPressedActions();
+  latestControllerSnapshot = createControllerDebugSnapshot(controllerInput, controllerActions);
+  const controllerStates = collectControllerActionStates(controllerActions, mode);
+  const inputStates = [...keyboardStates, ...controllerStates];
+  const hasActiveControllerAction = Object.values(controllerActions).some(Boolean);
   if (suppressInputUntilNeutral) {
-    if (!inputStates.some((state) => state.pressed)) {
+    if (!inputStates.some((state) => state.pressed) && !hasActiveControllerAction) {
       suppressInputUntilNeutral = false;
     }
     inputTimingState.heldActions.clear();
@@ -537,15 +516,12 @@ const pollInputs = (timestamp: number): void => {
     return;
   }
 
-  const actions = resolveTriggeredActions(
-    inputStates,
-    inputTimingState,
-    timestamp,
-    {
-      repeatDelayMs: inputRepeatDelayMs,
-      repeatIntervalMs: inputRepeatIntervalMs,
-    },
-  );
+  const heldActions = resolveTriggeredActions(inputStates, inputTimingState, timestamp, {
+    repeatDelayMs: inputRepeatDelayMs,
+    repeatIntervalMs: inputRepeatIntervalMs,
+  });
+  const edgeActions = filterControllerEdgeActions(controllerEdgeActions.splice(0), mode);
+  const actions = dedupeActions([...heldActions, ...edgeActions]);
   actions.forEach(applyTriggeredAction);
 };
 
@@ -683,8 +659,6 @@ const renderGameOverOverlay = (): string => `
   </section>
 `;
 
-const formatAxisValue = (value: number | undefined): string => (value ?? 0).toFixed(2);
-
 const renderSourceList = (sources: { label: string; type: string }[]): string =>
   sources.length === 0
     ? '<span class="muted">Idle</span>'
@@ -693,45 +667,69 @@ const renderSourceList = (sources: { label: string; type: string }[]): string =>
         .join('');
 
 const renderGamepadDiagnostics = (): string => {
-  const snapshot = latestGamepadSnapshot;
-  const axisX = snapshot.axes[0] ?? 0;
-  const axisY = snapshot.axes[1] ?? 0;
-  const stickX = Math.max(0, Math.min(100, 50 + axisX * 42));
-  const stickY = Math.max(0, Math.min(100, 50 + axisY * 42));
-  const directionActions: InputAction[] = [
-    currentScreen === 'controls' ? 'menuPrevious' : 'moveLeft',
-    currentScreen === 'controls' ? 'menuNext' : 'moveRight',
-    'confirm',
-    'back',
-  ];
-  const activeButtons = snapshot.buttons.filter((button) => button.pressed);
+  const snapshot = latestControllerSnapshot;
+  const activeInputs = controllerPhysicalInputs.filter((input) => snapshot.inputs[input]);
+  const actionsToShow: InputAction[] =
+    currentScreen === 'controls'
+      ? ['menuPrevious', 'menuNext', 'confirm', 'back']
+      : ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotateCW', 'rotateCCW', 'hold', 'pause'];
+  const connectedGamepads = snapshot.connectedGamepads;
 
   return `
     <section class="controller-debug" aria-label="Controller input monitor">
       <div class="debug-status">
         <div>
           <dt>Status</dt>
-          <dd>${snapshot.connected ? 'Connected' : getGamepadStatusText()}</dd>
+          <dd>${getGamepadStatusText()}</dd>
         </div>
         <div>
-          <dt>Controller</dt>
-          <dd>${snapshot.id ? escapeHtml(snapshot.id) : 'None'}</dd>
+          <dt>Selected Controller</dt>
+          <dd>${snapshot.selectedGamepad ? escapeHtml(snapshot.selectedGamepad.id) : 'None'}</dd>
         </div>
         <div>
-          <dt>Index</dt>
-          <dd>${snapshot.index ?? '-'}</dd>
+          <dt>Confidence</dt>
+          <dd>${snapshot.selectedGamepad ? snapshot.selectedGamepad.confidence : '-'}</dd>
+        </div>
+        <div>
+          <dt>Dead Zone</dt>
+          <dd>${snapshot.deadZone.toFixed(2)}</dd>
+        </div>
+        <div>
+          <dt>Saved Settings</dt>
+          <dd>${snapshot.savedConfigState === 'loaded' ? 'Loaded' : 'Default'}</dd>
         </div>
       </div>
 
       <div class="debug-grid">
         <section class="debug-block">
-          <h3>D-Pad / Directions</h3>
+          <h3>Connected Gamepads</h3>
+          <div class="button-monitor">
+            ${
+              connectedGamepads.length > 0
+                ? connectedGamepads
+                    .map(
+                      (gamepad) => `<span class="${gamepad.index === snapshot.selectedGamepad?.index ? 'is-active' : ''}">
+                        ${escapeHtml(gamepad.id)}
+                      </span>`,
+                    )
+                    .join('')
+                : '<span class="muted">None</span>'
+            }
+          </div>
+        </section>
+
+        <section class="debug-block">
+          <h3>Mapped Actions</h3>
           <div class="direction-pad">
-            ${directionActions
+            ${actionsToShow
               .map((action) => {
-                const sources = snapshot.activeActionSources.get(action) ?? [];
+                const sources = getControllerActionInputs(action).map((input) => ({
+                  type: 'controller',
+                  label: physicalInputLabels[input],
+                }));
+                const pressed = snapshot.actions[action];
                 const sourceClass = sources.length > 1 ? ' multi-source' : '';
-                return `<div class="direction-cell${sources.length > 0 ? ' is-active' : ''}${sourceClass}">
+                return `<div class="direction-cell${pressed ? ' is-active' : ''}${sourceClass}">
                   <span>${action}</span>
                   <small>${renderSourceList(sources)}</small>
                 </div>`;
@@ -741,30 +739,20 @@ const renderGamepadDiagnostics = (): string => {
         </section>
 
         <section class="debug-block">
-          <h3>Left Stick</h3>
-          <div class="stick-preview" aria-label="Left stick position">
-            <span style="left: ${stickX}%; top: ${stickY}%"></span>
-          </div>
-          <dl class="axis-readout">
-            <div><dt>Axis 0</dt><dd>${formatAxisValue(axisX)}</dd></div>
-            <div><dt>Axis 1</dt><dd>${formatAxisValue(axisY)}</dd></div>
-          </dl>
-        </section>
-
-        <section class="debug-block">
-          <h3>Buttons</h3>
+          <h3>Input State</h3>
           <div class="button-monitor">
-            ${snapshot.buttons
-              .map(
-                (button) => `<span class="${button.pressed ? 'is-active' : ''}">
-                  ${button.index}: ${escapeHtml(button.label)}
-                </span>`,
-              )
+            ${controllerPhysicalInputs
+              .map((input) => {
+                const pressed = snapshot.inputs[input];
+                return `<span class="${pressed ? 'is-active' : ''}">
+                  ${escapeHtml(physicalInputLabels[input])}
+                </span>`;
+              })
               .join('')}
           </div>
           <p class="connection-state">Pressed: ${
-            activeButtons.length > 0
-              ? activeButtons.map((button) => escapeHtml(button.label)).join(', ')
+            activeInputs.length > 0
+              ? activeInputs.map((input) => escapeHtml(physicalInputLabels[input])).join(', ')
               : 'None'
           }</p>
         </section>
@@ -797,13 +785,13 @@ const renderControls = (): string => `
         <h2>Controller</h2>
         <dl>
           <div><dt>D-Pad / Left Stick</dt><dd>Move / Soft Drop</dd></div>
-          <div><dt>A / B</dt><dd>Rotate</dd></div>
-          <div><dt>X / Y</dt><dd>Hard Drop</dd></div>
-          <div><dt>L / R</dt><dd>Hold</dd></div>
+          <div><dt>A / B</dt><dd>Rotate CW / CCW</dd></div>
+          <div><dt>D-Pad Up / X / Y</dt><dd>Hard Drop</dd></div>
+          <div><dt>L / R / ZL / ZR</dt><dd>Hold</dd></div>
           <div><dt>+</dt><dd>Pause</dd></div>
         </dl>
         <p class="connection-state">Gamepad Status: ${getGamepadStatusText()}</p>
-        <p class="connection-state">Button numbers can vary by OS and browser.</p>
+        <p class="connection-state">Controller input is mapped through procon-gamepad-mapper.</p>
         ${renderGamepadDiagnostics()}
       </article>
     </section>
@@ -965,22 +953,25 @@ root.addEventListener('click', (event) => {
   }
 });
 
-window.addEventListener('gamepadconnected', (event) => {
-  activeGamepadIndex = event.gamepad.index;
-  activeGamepadName = event.gamepad.id;
-  gamepadConnectionState = 'connected';
+controllerInput.mapper.on('actiondown', (event) => {
+  controllerEdgeActions.push(event.action);
+});
+
+window.addEventListener('gamepadconnected', () => {
+  latestControllerSnapshot = createControllerDebugSnapshot(
+    controllerInput,
+    controllerInput.mapper.getPressedActions(),
+  );
   render();
 });
 
-window.addEventListener('gamepaddisconnected', (event) => {
-  if (activeGamepadIndex === event.gamepad.index) {
-    activeGamepadIndex = null;
-    activeGamepadName = null;
-    gamepadConnectionState = 'disconnected';
-    latestGamepadSnapshot = createEmptyGamepadSnapshot();
-    resetInputTiming();
-    render();
-  }
+window.addEventListener('gamepaddisconnected', () => {
+  latestControllerSnapshot = createControllerDebugSnapshot(
+    controllerInput,
+    controllerInput.mapper.getPressedActions(),
+  );
+  resetInputTiming();
+  render();
 });
 
 window.addEventListener('keydown', (event) => {

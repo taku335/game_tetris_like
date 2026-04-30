@@ -66,20 +66,22 @@ npm run preview
 
 ### Nintendo Switch Proコントローラー
 
-Gamepad API で入力を取得します。Bluetooth接続したPCで、Chrome / Edge の利用を想定しています。
+Gamepad API の入力を `procon-gamepad-mapper` 経由で取得します。Bluetooth接続したPCで、Chrome / Edge の利用を想定しています。
+
+現時点で `procon-gamepad-mapper` は npm 未公開のため、GitHub の HTTPS 参照を依存関係として導入しています。
 
 | 操作 | 割り当て案 |
 | --- | --- |
 | 左右移動 | 十字キー / 左スティック |
 | ソフトドロップ | 十字キー下 / 左スティック下 |
+| ハードドロップ | 十字キー上 / `X` / `Y` |
 | 回転 | `A` / `B` |
-| ハードドロップ | `X` / `Y` |
-| Hold | `L` / `R` |
+| Hold | `L` / `R` / `ZL` / `ZR` |
 | Pause | `+` |
 
-OS、ブラウザ、接続状態によってボタン番号が異なる場合があります。現在は設定配列でマッピングを差し替えやすい構造にしており、将来的なキーコンフィグ実装を想定しています。
+ゲーム本体側では物理ボタン番号や axis index を直接扱わず、`moveLeft`、`rotateCW`、`pause` などの抽象アクションだけを参照します。
 
-タイトル画面は十字キーまたは左スティックでメニューを選択し、`A` または `+` で決定できます。操作説明画面では接続状態、コントローラー名、十字キー、左スティック、ボタン入力をリアルタイム表示します。
+タイトル画面は十字キーまたは左スティックでメニューを選択し、`A` または `+` で決定できます。操作説明画面では接続中の gamepad、選択中の controller、入力状態、mapped action、dead zone、保存済み設定の状態をリアルタイム表示します。
 
 ## Proコン接続手順
 
@@ -90,6 +92,8 @@ OS、ブラウザ、接続状態によってボタン番号が異なる場合が
 5. ゲーム画面または操作説明画面の Gamepad Status が `Connected` になることを確認します。
 
 接続済みでも入力されない場合は、ブラウザを再読み込みするか、コントローラーの再接続を試してください。
+
+Windows / macOS、Chrome / Edge、Bluetooth / USB、コントローラーのファームウェア差によって、Gamepad API の `id` や列挙タイミングが変わる場合があります。ブラウザによっては、コントローラーのボタンを一度押すまで gamepad が列挙されません。GitHub Pages は HTTPS の secure context で配信されるため Gamepad API の利用に適しています。
 
 ## 実装済み機能
 
@@ -109,8 +113,10 @@ OS、ブラウザ、接続状態によってボタン番号が異なる場合が
 - 操作説明画面
 - Gamepad API 接続状態表示
 - タイトル画面のゲームパッド操作
-- コントローラー入力の可視化
+- procon-gamepad-mapper 経由のコントローラー入力
+- コントローラー入力と mapped action の可視化
 - localStorage によるハイスコア保存
+- localStorage によるコントローラー設定保存状態の表示
 
 ## GitHub Pages
 
