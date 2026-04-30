@@ -1,17 +1,28 @@
+import { createProconMapper } from 'procon-gamepad-mapper';
+import type {
+  ActionMapping,
+  ActionState,
+  DetectedGamepad,
+  PhysicalInputState,
+  ProconMapper,
+  ProconPhysicalInput,
+} from 'procon-gamepad-mapper';
+
 export type GameplayAction =
   | 'moveLeft'
   | 'moveRight'
   | 'softDrop'
   | 'hardDrop'
-  | 'rotateClockwise'
-  | 'rotateCounterclockwise'
+  | 'rotateCW'
+  | 'rotateCCW'
   | 'hold'
   | 'pause';
 
 export type MenuAction = 'menuPrevious' | 'menuNext' | 'confirm' | 'back';
 export type InputAction = GameplayAction | MenuAction;
 export type InputMode = 'gameplay' | 'menu';
-export type InputSourceType = 'keyboard' | 'gamepadButton' | 'gamepadAxis';
+export type InputSourceType = 'keyboard' | 'controller';
+export type SavedControllerConfigState = 'loaded' | 'default';
 
 export type InputSource = {
   type: InputSourceType;
@@ -36,57 +47,59 @@ export type InputRepeatOptions = {
   repeatIntervalMs: number;
 };
 
-export type GamepadButtonBinding = {
-  button: number;
-  action: GameplayAction;
-  repeat: boolean;
-  label: string;
+export type ControllerInput = {
+  mapper: ProconMapper<InputAction>;
+  savedConfigState: SavedControllerConfigState;
 };
 
-export type GamepadAxisBinding = {
-  axis: number;
-  direction: -1 | 1;
-  action: GameplayAction;
-  label: string;
+export type ControllerDebugSnapshot = {
+  supported: boolean;
+  connectedGamepads: DetectedGamepad[];
+  selectedGamepad: DetectedGamepad | null;
+  inputs: PhysicalInputState;
+  actions: ActionState<InputAction>;
+  deadZone: number;
+  savedConfigState: SavedControllerConfigState;
 };
 
-export type MenuGamepadButtonBinding = {
-  button: number;
-  action: MenuAction;
-  repeat: boolean;
-  label: string;
+export const controllerStorageKey = 'game_tetris_like:procon:v1';
+export const defaultControllerDeadZone = 0.55;
+
+export const controllerActionMapping: ActionMapping<InputAction> = {
+  moveLeft: ['dpadLeft', 'leftStickLeft'],
+  moveRight: ['dpadRight', 'leftStickRight'],
+  softDrop: ['dpadDown', 'leftStickDown'],
+  hardDrop: ['dpadUp', 'buttonX', 'buttonY'],
+  rotateCW: 'buttonA',
+  rotateCCW: 'buttonB',
+  hold: ['buttonL', 'buttonR', 'buttonZL', 'buttonZR'],
+  pause: 'buttonPlus',
+  menuPrevious: ['dpadUp', 'dpadLeft', 'leftStickUp', 'leftStickLeft'],
+  menuNext: ['dpadDown', 'dpadRight', 'leftStickDown', 'leftStickRight'],
+  confirm: ['buttonA', 'buttonPlus'],
+  back: ['buttonB', 'buttonMinus'],
 };
 
-export type MenuGamepadAxisBinding = {
-  axis: number;
-  direction: -1 | 1;
-  action: MenuAction;
-  label: string;
-};
-
-export type GamepadButtonDebugState = {
-  index: number;
-  label: string;
-  pressed: boolean;
-  value: number;
-};
-
-export type GamepadDirectionDebugState = {
-  action: GameplayAction | MenuAction;
-  label: string;
-  pressed: boolean;
-  sources: InputSource[];
-};
-
-export type GamepadDebugSnapshot = {
-  connected: boolean;
-  id: string | null;
-  index: number | null;
-  axes: number[];
-  buttons: GamepadButtonDebugState[];
-  directions: GamepadDirectionDebugState[];
-  activeActionSources: Map<InputAction, InputSource[]>;
-};
+export const controllerPhysicalInputs: ProconPhysicalInput[] = [
+  'buttonA',
+  'buttonB',
+  'buttonX',
+  'buttonY',
+  'buttonL',
+  'buttonR',
+  'buttonZL',
+  'buttonZR',
+  'buttonMinus',
+  'buttonPlus',
+  'dpadUp',
+  'dpadDown',
+  'dpadLeft',
+  'dpadRight',
+  'leftStickUp',
+  'leftStickDown',
+  'leftStickLeft',
+  'leftStickRight',
+];
 
 export const createInputTimingState = (): InputTimingState => ({
   heldActions: new Set<InputAction>(),
@@ -102,10 +115,10 @@ export const keyboardMap = new Map<string, GameplayAction>([
   ['ArrowDown', 'softDrop'],
   ['KeyS', 'softDrop'],
   ['Space', 'hardDrop'],
-  ['ArrowUp', 'rotateClockwise'],
-  ['KeyW', 'rotateClockwise'],
-  ['KeyX', 'rotateClockwise'],
-  ['KeyZ', 'rotateCounterclockwise'],
+  ['ArrowUp', 'rotateCW'],
+  ['KeyW', 'rotateCW'],
+  ['KeyX', 'rotateCW'],
+  ['KeyZ', 'rotateCCW'],
   ['KeyC', 'hold'],
   ['ShiftLeft', 'hold'],
   ['ShiftRight', 'hold'],
@@ -127,43 +140,6 @@ export const keyboardMenuMap = new Map<string, MenuAction>([
   ['Escape', 'back'],
 ]);
 
-export const gamepadButtonMap: GamepadButtonBinding[] = [
-  { button: 14, action: 'moveLeft', repeat: true, label: 'D-Pad Left' },
-  { button: 15, action: 'moveRight', repeat: true, label: 'D-Pad Right' },
-  { button: 13, action: 'softDrop', repeat: true, label: 'D-Pad Down' },
-  { button: 0, action: 'rotateClockwise', repeat: false, label: 'A' },
-  { button: 1, action: 'rotateCounterclockwise', repeat: false, label: 'B' },
-  { button: 2, action: 'hardDrop', repeat: false, label: 'X' },
-  { button: 3, action: 'hardDrop', repeat: false, label: 'Y' },
-  { button: 4, action: 'hold', repeat: false, label: 'L' },
-  { button: 5, action: 'hold', repeat: false, label: 'R' },
-  { button: 9, action: 'pause', repeat: false, label: '+' },
-];
-
-export const gamepadAxisMap: GamepadAxisBinding[] = [
-  { axis: 0, direction: -1, action: 'moveLeft', label: 'Left Stick Left' },
-  { axis: 0, direction: 1, action: 'moveRight', label: 'Left Stick Right' },
-  { axis: 1, direction: 1, action: 'softDrop', label: 'Left Stick Down' },
-];
-
-export const menuGamepadButtonMap: MenuGamepadButtonBinding[] = [
-  { button: 12, action: 'menuPrevious', repeat: true, label: 'D-Pad Up' },
-  { button: 14, action: 'menuPrevious', repeat: true, label: 'D-Pad Left' },
-  { button: 13, action: 'menuNext', repeat: true, label: 'D-Pad Down' },
-  { button: 15, action: 'menuNext', repeat: true, label: 'D-Pad Right' },
-  { button: 0, action: 'confirm', repeat: false, label: 'A' },
-  { button: 9, action: 'confirm', repeat: false, label: '+' },
-  { button: 1, action: 'back', repeat: false, label: 'B' },
-  { button: 8, action: 'back', repeat: false, label: '-' },
-];
-
-export const menuGamepadAxisMap: MenuGamepadAxisBinding[] = [
-  { axis: 0, direction: -1, action: 'menuPrevious', label: 'Left Stick Left' },
-  { axis: 1, direction: -1, action: 'menuPrevious', label: 'Left Stick Up' },
-  { axis: 0, direction: 1, action: 'menuNext', label: 'Left Stick Right' },
-  { axis: 1, direction: 1, action: 'menuNext', label: 'Left Stick Down' },
-];
-
 export const repeatableActions = new Set<InputAction>([
   'moveLeft',
   'moveRight',
@@ -172,44 +148,101 @@ export const repeatableActions = new Set<InputAction>([
   'menuNext',
 ]);
 
-const trackedButtonLabels = new Map<number, string>([
-  [0, 'A'],
-  [1, 'B'],
-  [2, 'X'],
-  [3, 'Y'],
-  [4, 'L'],
-  [5, 'R'],
-  [8, '-'],
-  [9, '+'],
-  [12, 'D-Pad Up'],
-  [13, 'D-Pad Down'],
-  [14, 'D-Pad Left'],
-  [15, 'D-Pad Right'],
+export const gameplayActions = new Set<InputAction>([
+  'moveLeft',
+  'moveRight',
+  'softDrop',
+  'hardDrop',
+  'rotateCW',
+  'rotateCCW',
+  'hold',
+  'pause',
 ]);
 
-const directionLabels = new Map<InputAction, string>([
-  ['moveLeft', 'Left'],
-  ['moveRight', 'Right'],
-  ['softDrop', 'Down'],
-  ['menuPrevious', 'Previous'],
-  ['menuNext', 'Next'],
-  ['confirm', 'Confirm'],
-  ['back', 'Back'],
+export const menuActions = new Set<InputAction>([
+  'menuPrevious',
+  'menuNext',
+  'confirm',
+  'back',
 ]);
 
-export const createEmptyGamepadSnapshot = (): GamepadDebugSnapshot => ({
-  connected: false,
-  id: null,
-  index: null,
-  axes: [0, 0],
-  buttons: Array.from(trackedButtonLabels, ([index, label]) => ({
-    index,
-    label,
-    pressed: false,
-    value: 0,
-  })),
-  directions: [],
-  activeActionSources: new Map<InputAction, InputSource[]>(),
+export const oneShotControllerActions = new Set<InputAction>([
+  'hardDrop',
+  'rotateCW',
+  'rotateCCW',
+  'hold',
+  'pause',
+  'confirm',
+  'back',
+]);
+
+export const physicalInputLabels: Record<ProconPhysicalInput, string> = {
+  buttonA: 'A',
+  buttonB: 'B',
+  buttonX: 'X',
+  buttonY: 'Y',
+  buttonL: 'L',
+  buttonR: 'R',
+  buttonZL: 'ZL',
+  buttonZR: 'ZR',
+  buttonMinus: '-',
+  buttonPlus: '+',
+  buttonHome: 'Home',
+  buttonCapture: 'Capture',
+  buttonLeftStick: 'Left Stick Button',
+  buttonRightStick: 'Right Stick Button',
+  dpadUp: 'D-Pad Up',
+  dpadDown: 'D-Pad Down',
+  dpadLeft: 'D-Pad Left',
+  dpadRight: 'D-Pad Right',
+  leftStickUp: 'Left Stick Up',
+  leftStickDown: 'Left Stick Down',
+  leftStickLeft: 'Left Stick Left',
+  leftStickRight: 'Left Stick Right',
+  rightStickUp: 'Right Stick Up',
+  rightStickDown: 'Right Stick Down',
+  rightStickLeft: 'Right Stick Left',
+  rightStickRight: 'Right Stick Right',
+};
+
+export const createControllerInput = (): ControllerInput => {
+  const mapper = createProconMapper<InputAction>({
+    mapping: controllerActionMapping,
+    deadZone: defaultControllerDeadZone,
+    storageKey: controllerStorageKey,
+  });
+
+  const savedConfigState = mapper.load() ? 'loaded' : 'default';
+  return { mapper, savedConfigState };
+};
+
+export const createEmptyControllerDebugSnapshot = (
+  savedConfigState: SavedControllerConfigState = 'default',
+): ControllerDebugSnapshot => ({
+  supported: typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function',
+  connectedGamepads: [],
+  selectedGamepad: null,
+  inputs: Object.fromEntries(
+    controllerPhysicalInputs.map((input) => [input, false]),
+  ) as PhysicalInputState,
+  actions: Object.fromEntries(
+    (Object.keys(controllerActionMapping) as InputAction[]).map((action) => [action, false]),
+  ) as ActionState<InputAction>,
+  deadZone: defaultControllerDeadZone,
+  savedConfigState,
+});
+
+export const createControllerDebugSnapshot = (
+  controller: ControllerInput,
+  actions: ActionState<InputAction>,
+): ControllerDebugSnapshot => ({
+  supported: typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function',
+  connectedGamepads: controller.mapper.getConnectedGamepads(),
+  selectedGamepad: controller.mapper.getSelectedGamepad(),
+  inputs: controller.mapper.getInputState(),
+  actions,
+  deadZone: controller.mapper.getDeadZone(),
+  savedConfigState: controller.savedConfigState,
 });
 
 const addActionSource = (
@@ -222,8 +255,16 @@ const addActionSource = (
   actionSources.set(action, sources);
 };
 
-const isAxisActive = (value: number, direction: -1 | 1, threshold: number): boolean =>
-  direction < 0 ? value <= -threshold : value >= threshold;
+export const getActionMode = (action: InputAction): InputMode =>
+  gameplayActions.has(action) ? 'gameplay' : 'menu';
+
+const actionMatchesMode = (action: InputAction, mode: InputMode): boolean =>
+  getActionMode(action) === mode;
+
+export const getControllerActionInputs = (action: InputAction): ProconPhysicalInput[] => {
+  const inputs = controllerActionMapping[action];
+  return Array.isArray(inputs) ? inputs : [inputs];
+};
 
 export const collectKeyboardActionStates = (
   pressedCodes: Set<string>,
@@ -252,78 +293,27 @@ export const collectKeyboardActionStates = (
   }));
 };
 
-export const collectGamepadActionStates = (
-  gamepad: Pick<Gamepad, 'axes' | 'buttons' | 'id' | 'index'> | null,
+export const collectControllerActionStates = (
+  actions: ActionState<InputAction>,
   mode: InputMode,
-  axisThreshold: number,
-): { states: ActionInputState[]; snapshot: GamepadDebugSnapshot } => {
-  if (!gamepad) {
-    return { states: [], snapshot: createEmptyGamepadSnapshot() };
-  }
-
-  const actionSources = new Map<InputAction, InputSource[]>();
-  const buttonBindings = mode === 'gameplay' ? gamepadButtonMap : menuGamepadButtonMap;
-  const axisBindings = mode === 'gameplay' ? gamepadAxisMap : menuGamepadAxisMap;
-
-  buttonBindings.forEach((binding) => {
-    const button = gamepad.buttons[binding.button];
-    if (!button?.pressed) {
-      return;
-    }
-
-    addActionSource(actionSources, binding.action, {
-      type: 'gamepadButton',
-      id: String(binding.button),
-      label: binding.label,
-    });
-  });
-
-  axisBindings.forEach((binding) => {
-    const value = gamepad.axes[binding.axis] ?? 0;
-    if (!isAxisActive(value, binding.direction, axisThreshold)) {
-      return;
-    }
-
-    addActionSource(actionSources, binding.action, {
-      type: 'gamepadAxis',
-      id: `${binding.axis}:${binding.direction}`,
-      label: binding.label,
-    });
-  });
-
-  const buttons = Array.from(trackedButtonLabels, ([index, label]) => {
-    const button = gamepad.buttons[index];
-    return {
-      index,
-      label,
-      pressed: button?.pressed ?? false,
-      value: button?.value ?? 0,
-    };
-  });
-  const directions = Array.from(actionSources, ([action, sources]) => ({
-    action,
-    label: directionLabels.get(action) ?? action,
-    pressed: true,
-    sources,
-  }));
-
-  return {
-    states: Array.from(actionSources, ([action, sources]) => ({
+): ActionInputState[] =>
+  (Object.keys(controllerActionMapping) as InputAction[])
+    .filter((action) => actionMatchesMode(action, mode))
+    .filter((action) => actions[action] && !oneShotControllerActions.has(action))
+    .map((action) => ({
       action,
       pressed: true,
-      sources,
-    })),
-    snapshot: {
-      connected: true,
-      id: gamepad.id,
-      index: gamepad.index,
-      axes: Array.from(gamepad.axes).slice(0, 4),
-      buttons,
-      directions,
-      activeActionSources: actionSources,
-    },
-  };
-};
+      sources: getControllerActionInputs(action).map((input) => ({
+        type: 'controller',
+        id: input,
+        label: physicalInputLabels[input],
+      })),
+    }));
+
+export const filterControllerEdgeActions = (
+  actions: InputAction[],
+  mode: InputMode,
+): InputAction[] => actions.filter((action) => actionMatchesMode(action, mode));
 
 export const resolveTriggeredActions = (
   states: ActionInputState[],
@@ -368,14 +358,4 @@ export const resolveTriggeredActions = (
   return triggered;
 };
 
-export const shouldApplyGamepadAction = (
-  appliedActions: Set<InputAction>,
-  action: InputAction,
-): boolean => {
-  if (appliedActions.has(action)) {
-    return false;
-  }
-
-  appliedActions.add(action);
-  return true;
-};
+export const dedupeActions = (actions: InputAction[]): InputAction[] => Array.from(new Set(actions));

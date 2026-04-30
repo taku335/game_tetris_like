@@ -9,6 +9,9 @@
     "preview": "vite preview",
     "test": "tsc --noEmit && vitest run"
   },
+  "dependencies": {
+    "procon-gamepad-mapper": "git+https://github.com/taku335/procon-gamepad-mapper.git#1085effbebfec74016665371414f270250f9a539"
+  },
   "devDependencies": {
     "typescript": "^5.8.3",
     "vite": "^6.3.0",

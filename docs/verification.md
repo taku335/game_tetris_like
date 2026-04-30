@@ -39,21 +39,22 @@ make test
 7. Move left and right with the left stick and confirm it matches the D-pad behavior.
 8. Hold left or right and confirm movement repeats after a short delay at a steady interval.
 9. Soft drop with D-pad down or left stick down.
-10. Rotate with `A` / `B`.
-11. Hard drop with `X` / `Y`.
-12. Hold with `L` / `R`.
+10. Hard drop with D-pad up / `X` / `Y`.
+11. Rotate clockwise with `A` and counterclockwise with `B`.
+12. Hold with `L` / `R` / `ZL` / `ZR`.
 13. Pause with `+`.
 
 ## Controller Diagnostics Check
 
 1. Open the Controls screen.
-2. Confirm connection status and controller name are displayed.
-3. Press each D-pad direction and confirm the matching button indicator updates.
-4. Move the left stick and confirm the stick dot and axis values update in real time.
-5. Press `A` / `B` / `X` / `Y` / `L` / `R` / `+` and confirm button indicators update.
-6. If one physical input activates multiple sources, confirm the direction monitor shows multiple source pills.
+2. Confirm connection status, connected gamepad list, selected controller, and Pro Controller confidence are displayed.
+3. Confirm dead zone and saved settings state are displayed.
+4. Press each D-pad direction and confirm the named input state updates.
+5. Move the left stick and confirm the named stick direction input updates.
+6. Press `A` / `B` / `X` / `Y` / `L` / `R` / `ZL` / `ZR` / `+` and confirm input state updates.
+7. Confirm mapped actions update without showing physical button numbers or axis indexes.
 
-Button numbers can vary by OS and browser. If a physical controller differs, update the mapping arrays in `src/game/input.ts`.
+Gamepad API data can vary by Windows / macOS, Chrome / Edge, Bluetooth / USB, browser version, and controller firmware. The game should continue to run if no Pro Controller is connected.
 
 ## GitHub Pages Check
 
